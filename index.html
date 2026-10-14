@@ -56,8 +56,17 @@ input[type=number]{width:64px;text-align:center}
 .total{margin-top:10px;font-weight:600}
 details.settings{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
 details.settings summary{cursor:pointer;font-weight:600}
-.set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px 24px;margin-top:12px}
-.set-grid label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.rules{max-width:720px;margin-top:6px}
+.rules-group{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 4px}
+.rule{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-top:6px;background:var(--field)}
+.rule.clickable,.rule .clickable{cursor:pointer}
+.rule.clickable:hover{border-color:var(--line-strong)}
+.rule-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.rule-text b{font-weight:600}
+.rule-text span{font-size:13px;color:var(--muted)}
+.rule-ctl{display:flex;align-items:center;gap:10px;flex:none}
+.rule-ctl input[type=checkbox]{width:18px;height:18px}
+input:disabled,select:disabled{opacity:.4;cursor:not-allowed}
 .drop{display:block;border:2px dashed var(--line-strong);border-radius:var(--radius);padding:26px;text-align:center;background:var(--field);cursor:pointer}
 .drop:hover{border-color:var(--accent)}
 .drop.over{border-color:var(--accent);background:var(--accent-soft)}
@@ -123,19 +132,33 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
 
     <details class="settings" id="settingsBox">
       <summary>Print rules</summary>
-      <div class="set-grid">
-        <label>Odd number of players on split parts — extra copy goes to
-          <select id="setOdd"><option value="first">the 1st part</option><option value="last">the last part</option></select></label>
-        <label>Every percussionist gets every percussion part
-          <input type="checkbox" id="setPerc"></label>
-        <label>Spare copies of each part
-          <input type="number" id="setSpares" min="0" max="20"></label>
-        <label>Include the full score
-          <span class="row"><input type="checkbox" id="setScore"><input type="number" id="setScoreCopies" min="1" max="20" title="Score copies"></span></label>
-        <label>Printing double-sided (adds a blank page after odd-length parts)
-          <input type="checkbox" id="setDuplex"></label>
+      <div class="rules">
+        <div class="rules-group">Splitting parts</div>
+        <div class="rule">
+          <div class="rule-text"><b>Uneven split — extra copy goes to</b><span>When players don't divide evenly, e.g. 7 trumpets on Trumpet 1 and 2.</span></div>
+          <div class="rule-ctl"><select id="setOdd"><option value="first">the 1st part</option><option value="last">the last part</option></select></div>
+        </div>
+        <label class="rule clickable">
+          <div class="rule-text"><b>Every percussionist gets every percussion part</b><span>Turn off to give each percussion part 1 copy and adjust by hand.</span></div>
+          <div class="rule-ctl"><input type="checkbox" id="setPerc"></div>
+        </label>
+
+        <div class="rules-group">Extra copies</div>
+        <div class="rule">
+          <div class="rule-text"><b>Spare copies of each part</b><span>Added to every part that prints.</span></div>
+          <div class="rule-ctl"><input type="number" id="setSpares" min="0" max="20"></div>
+        </div>
+        <div class="rule">
+          <label class="rule-text clickable" for="setScore"><b>Include the full score</b><span>Check to print the score, then set how many copies.</span></label>
+          <div class="rule-ctl"><input type="checkbox" id="setScore" aria-label="Include the full score"><input type="number" id="setScoreCopies" min="1" max="20" aria-label="Score copies"></div>
+        </div>
+
+        <div class="rules-group">Printing</div>
+        <label class="rule clickable">
+          <div class="rule-text"><b>Printing double-sided</b><span>Adds a blank page after odd-length parts so every part starts on a new sheet.</span></div>
+          <div class="rule-ctl"><input type="checkbox" id="setDuplex"></div>
+        </label>
       </div>
-      <p class="hint" style="margin-top:10px">When nobody plays a split part evenly (e.g. 7 players on 2 parts), the extra copy goes where you choose above. With percussion turned off, each percussion part gets 1 copy and you adjust from there.</p>
     </details>
   </section>
 
