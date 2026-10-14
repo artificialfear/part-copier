@@ -15,6 +15,20 @@ files are uploaded, nothing to install.
    choose which part those players get.
 4. **Print** — download the PDF and send it to the copier as one job, single copy.
 
+### Optional: import a roster for named copies
+
+Under **Your ensemble**, click **Import roster** and paste three columns from any
+spreadsheet — **Name**, **Instrument**, **Chair** (a header row and extra columns are
+fine) — or upload a CSV. Then:
+
+- Counts come from the roster, and every student gets exactly one copy.
+- Split parts (1st/2nd/3rd) are assigned in chair order; chairs can be numbers or
+  ordinals like "2nd" or "3rd (tie)". Students without a chair go last in their section.
+- Each student's first name is printed in the top-right corner of every page of their
+  copy (with a last initial when two students in the ensemble share a first name).
+  Uncheck **Print names on parts** to use the roster for counts only.
+- Rosters are saved only in that browser. On shared computers, use **Forget roster**.
+
 ## Default print rules (change under "Print rules")
 
 - Split parts (1st/2nd/3rd): players divided evenly; an odd player goes to the 1st part.
@@ -22,6 +36,7 @@ files are uploaded, nothing to install.
 - Every percussionist gets every percussion part.
 - No spare copies, no score, single-sided.
 - Bassoon with no bassoon part: gets the lowest trombone part.
+- Trumpets with only cornet parts (or cornets with only trumpet parts) split across those parts.
 
 ## Publishing on GitHub Pages
 

@@ -51,6 +51,23 @@ select,input[type=text],input[type=number]{border:1px solid var(--line-strong);b
 input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px}
 input[type=number]{width:64px;text-align:center}
+.roster-card{margin-top:14px;border:1px solid var(--line);border-radius:8px;background:var(--field);padding:12px 14px}
+.roster-card.has{border-color:var(--accent)}
+.roster-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.roster-head .t{display:flex;flex-direction:column;gap:2px}
+.roster-head .t span{font-size:13px;color:var(--muted)}
+.roster-import{margin-top:12px}
+.roster-import textarea{width:100%;min-height:150px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:inherit;background:var(--paper);border:1px solid var(--line-strong);border-radius:7px;padding:8px}
+.roster-import ol{margin:6px 0 10px;padding-left:20px;font-size:13.5px;color:var(--muted)}
+.roster-notes{margin:10px 0 0;padding:0;list-style:none;font-size:13px}
+.roster-notes li{padding:6px 10px;border-radius:6px;background:var(--warn-soft);color:var(--warn);margin-top:4px}
+.roster-msg{font-size:13.5px;margin-top:8px}
+.roster-msg.err{color:var(--warn)}
+.chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+.names{font-size:12.5px;color:var(--ink);margin-top:3px;opacity:.85}
+.tiles.locked .stepper{border-color:transparent;background:transparent}
+.tiles.locked .stepper button{display:none}
+.tiles.locked .stepper input{border:none;background:transparent;color:var(--ink);opacity:1}
 .sec{margin-top:14px}
 .sec-title{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:8px}
@@ -130,13 +147,14 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
 <main>
   <section class="card" id="s1">
     <h2><span class="n">1</span>Your ensemble</h2>
-    <p class="hint">Enter how many students play each instrument. Numbers are saved in this browser, so set up each ensemble once.</p>
+    <p class="hint" id="ensHint">Enter how many students play each instrument, or import a roster to print a named copy for each student. Everything is saved in this browser, so set up each ensemble once.</p>
     <div class="row">
       <select id="ensSelect" aria-label="Ensemble"></select>
       <button id="ensNew">New ensemble</button>
       <button id="ensRename">Rename</button>
       <button id="ensDelete">Delete</button>
     </div>
+    <div id="rosterBox"></div>
     <div id="countGrid"></div>
     <div class="total" id="countTotal"></div>
 
@@ -308,14 +326,122 @@ function load(){
       s.settings.fallbacks = Object.assign({}, DEFAULT_SETTINGS.fallbacks, (s.settings||{}).fallbacks || {});
       for (const k in s.ensembles) s.ensembles[k] = Object.assign(blankCounts(), s.ensembles[k]);
       if (!s.ensembles[s.current]) s.current = Object.keys(s.ensembles)[0];
+      s.rosters = s.rosters || {};
       return s;
     }
   } catch (e) {}
-  return { settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), ensembles: { "My Band": blankCounts() }, current: "My Band" };
+  return { settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), ensembles: { "My Band": blankCounts() }, current: "My Band", rosters: {} };
 }
 function persist(){ try { localStorage.setItem(STORE, JSON.stringify(saved)); } catch (e) {} }
 const S = () => saved.settings;
 const counts = () => saved.ensembles[saved.current];
+const roster = () => (saved.rosters || {})[saved.current] || null;
+
+/* ---------------------------------------------------------------- roster import */
+const INST_RX = [
+  [/\b(perc|percussion|drums?|snare|mallets?|timp|timpani|bells|xylophone|marimba)\b/, "Percussion"],
+  [/\balto\s*(clar|clarinet|cl)\b/, "Alto Clarinet"],
+  [/\b(bass|contra\w*)\s*(clar|clarinet|cl)\b|\bbcl\b/, "Bass Clarinet"],
+  [/\b(clar|clarinet|cl|bb clarinet)\b/, "Clarinet"],
+  [/\b(bari|baritone)\s*(sax|saxophone)\b|\bbari\b/, "Bari Sax"],
+  [/\btenor\s*(sax|saxophone)\b|\btsax\b/, "Tenor Sax"],
+  [/\b(alto\s*)?(sax|saxophone|asax)\b/, "Alto Sax"],
+  [/\b(picc|piccolo|flute|fl|flt)\b/, "Flute"],
+  [/\b(oboe|ob)\b/, "Oboe"],
+  [/\b(bassoon|bsn)\b/, "Bassoon"],
+  [/\b(cornet|cnt)\b/, "Cornet"],
+  [/\b(trumpet|tpt|trp)\b/, "Trumpet"],
+  [/\b(horn|hn|mellophone)\b/, "Horn"],
+  [/\b(trombone|tbn|trb|tbone|bone)\b/, "Trombone"],
+  [/\b(euph|euphonium|baritone)\b.*\b(tc|treble)\b|\b(tc|treble)\b.*\b(euph|euphonium|baritone)\b/, "Euphonium TC"],
+  [/\b(euph|euphonium|baritone)\b/, "Euphonium BC"],
+  [/\b(tuba|tba|sousaphone)\b/, "Tuba"],
+  [/\b(piano|keyboard|keys|pno)\b/, "Piano"],
+  [/\b(string bass|electric bass|bass guitar|upright bass|double bass|bass)\b/, "String Bass"]
+];
+function normInst(text){
+  const t = norm(String(text || "")).replace(/[.\-_\/]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  for (const [re, id] of INST_RX) if (re.test(t)) return id;
+  return null;
+}
+function parseTable(text){
+  text = String(text || "").replace(/\r\n?/g, "\n").replace(/^\uFEFF/, "").trim();
+  if (!text) return [];
+  if (text.includes("\t")) return text.split("\n").map(l => l.split("\t"));
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++){
+    const ch = text[i];
+    if (q){ if (ch === '"'){ if (text[i+1] === '"'){ cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ","){ row.push(cell); cell = ""; }
+    else if (ch === "\n"){ row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += ch;
+  }
+  row.push(cell); rows.push(row);
+  return rows;
+}
+function splitName(full){
+  full = String(full || "").replace(/\s+/g, " ").trim();
+  if (full.includes(",")){ const [last, first] = full.split(/,(.*)/s).map(x => (x || "").trim()); return { first: first || last, last: first ? last : "" }; }
+  const parts = full.split(" "); return { first: parts[0], last: parts.slice(1).join(" ") };
+}
+function importRoster(text){
+  const rows = parseTable(text).filter(r => r.some(c => String(c).trim()));
+  if (!rows.length) return { error: "Nothing to import — paste your roster first." };
+  const head = rows[0].map(c => String(c).trim().toLowerCase());
+  const find = re => head.findIndex(h => re.test(h));
+  let iName = find(/^(name|student|student name|full name|students?)$/), iFirst = find(/^first( name)?$/), iLast = find(/^last( name)?$/);
+  let iInst = find(/instrument|^inst\.?$|^part$/);
+  let iChair = find(/^rank#?$|^rank\b/); if (iChair < 0) iChair = find(/chair|seat|position/);
+  const hasHeader = (iName >= 0 || iFirst >= 0) && iInst >= 0;
+  if (!hasHeader){ iName = 0; iInst = 1; iChair = rows[0].length > 2 ? 2 : -1; iFirst = iLast = -1; }
+  const body = hasHeader ? rows.slice(1) : rows;
+  const students = [], skipped = [];
+  for (const r of body){
+    const cell = i => (i >= 0 && i < r.length ? String(r[i]).trim() : "");
+    const name = iName >= 0 ? cell(iName) : [cell(iFirst), cell(iLast)].filter(Boolean).join(" ");
+    const instText = cell(iInst);
+    if (!name && !instText) continue;
+    if (!name){ skipped.push(`(no name) — ${instText}`); continue; }
+    const inst = normInst(instText);
+    if (!inst){ skipped.push(`${name} — instrument "${instText || "blank"}" not recognized`); continue; }
+    const m = cell(iChair).match(/\d+/);
+    const nm = (iName < 0 && iLast >= 0) ? { first: cell(iFirst), last: cell(iLast) } : splitName(name);
+    students.push({ name, first: nm.first, last: nm.last, inst, chair: m ? parseInt(m[0], 10) : null });
+  }
+  if (!students.length) return { error: "No students could be read. Check that the columns are Name, Instrument, Chair." };
+  return { roster: { students, skipped, names: true, imported: new Date().toISOString() } };
+}
+function rosterView(ros){
+  const studs = ros.students.map(s => Object.assign({}, s));
+  const byFirst = {};
+  studs.forEach(s => (byFirst[s.first.toLowerCase()] = byFirst[s.first.toLowerCase()] || []).push(s));
+  for (const g of Object.values(byFirst)) g.forEach(s => {
+    if (g.length < 2 || !s.last){ s.display = s.first; return; }
+    const ini = s.last[0].toUpperCase();
+    const clash = g.some(o => o !== s && o.last && o.last[0].toUpperCase() === ini);
+    s.display = s.first + " " + (clash ? s.last : ini + ".");
+  });
+  const byInst = {}, notes = [];
+  studs.forEach(s => (byInst[s.inst] = byInst[s.inst] || []).push(s));
+  const noChair = [], ties = [];
+  for (const [id, g] of Object.entries(byInst)){
+    g.sort((a, b) => (a.chair == null) - (b.chair == null) || (a.chair ?? 0) - (b.chair ?? 0) || a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
+    const seen = {};
+    g.forEach(s => { if (s.chair == null) noChair.push(`${s.display} (${SHORT(id)})`); else (seen[s.chair] = seen[s.chair] || []).push(s.display); });
+    for (const [ch, names] of Object.entries(seen)) if (names.length > 1) ties.push(`${LABEL[id]} chair ${ch}: ${names.join(", ")}`);
+  }
+  if (noChair.length) notes.push(`No chair number (placed last in their section, alphabetically): ${noChair.join("; ")}`);
+  if (ties.length) notes.push(`Tied chairs (ordered alphabetically — check if a tie falls where a part splits): ${ties.join("; ")}`);
+  if (ros.skipped && ros.skipped.length) notes.push(`Not imported: ${ros.skipped.join("; ")}`);
+  return { byInst, notes, total: studs.length };
+}
+function syncCountsFromRoster(){
+  const ros = roster(); if (!ros) return;
+  const v = rosterView(ros), c = counts();
+  for (const id of INSTR_IDS) c[id] = (v.byInst[id] || []).length;
+}
 
 /* ---------------------------------------------------------------- piece state */
 const state = { bytes:null, fileName:"", pdf:null, numPages:0, pageInfo:[], starts:new Map(), scanned:false };
@@ -326,9 +452,17 @@ function segments(){
 }
 
 /* ---------------------------------------------------------------- copy plan */
+function playerLists(){
+  const ros = roster(), c = counts(), g = {};
+  if (ros){
+    const v = rosterView(ros), named = ros.names !== false;
+    for (const id of INSTR_IDS) g[id] = (v.byInst[id] || []).map(s => named ? s.display : null);
+  } else for (const id of INSTR_IDS) g[id] = Array(c[id] || 0).fill(null);
+  return g;
+}
 function plan(){
-  const c = counts(), st = S();
-  const rows = segments().map(sg => Object.assign({}, sg, { pages: sg.end - sg.start + 1, nums: [], dup:false, auto:0, note:"", flag:false }));
+  const st = S(), groups = playerLists();
+  const rows = segments().map(sg => Object.assign({}, sg, { pages: sg.end - sg.start + 1, nums: [], dup:false, list:[], note:"", flag:false }));
   const seen = new Set();
   for (const r of rows){
     if (INSTR_IDS.includes(r.fam)) r.nums = partNums(r.label);
@@ -343,39 +477,40 @@ function plan(){
   const present = new Set(rows.filter(r => !r.dup).map(r => r.fam));
   const pooled = {}, pooledFrom = {};
   for (const id of INSTR_IDS){
-    const p = c[id] || 0, target = st.fallbacks[id] || "";
-    if (!p || present.has(id) || !target.endsWith("|split")) continue;
+    const g = groups[id], target = st.fallbacks[id] || "";
+    if (!g.length || present.has(id) || !target.endsWith("|split")) continue;
     const fam = target.split("|")[0];
     if (!present.has(fam)) continue;
-    pooled[fam] = (pooled[fam] || 0) + p;
-    (pooledFrom[fam] = pooledFrom[fam] || []).push(`${p} ${SHORT(id)}`);
+    pooled[fam] = (pooled[fam] || []).concat(g);
+    (pooledFrom[fam] = pooledFrom[fam] || []).push(`${g.length} ${SHORT(id)}`);
   }
 
   for (const r of rows){
-    const p = (c[r.fam] || 0) + (pooled[r.fam] || 0);
+    const list = (groups[r.fam] || []).concat(pooled[r.fam] || []), p = list.length;
     const incl = pooledFrom[r.fam] ? ` (incl. ${pooledFrom[r.fam].join(", ")})` : "";
     if (r.fam === "Other"){ r.note = "Not counted — pick an instrument if this is a part"; r.flag = r.pages > 0 && r.label !== "Front matter"; continue; }
     if (r.dup){ r.note = "Duplicate of an earlier part"; continue; }
-    if (r.fam === "Score"){ r.auto = st.includeScore ? st.scoreCopies : 0; r.note = st.includeScore ? "Score" : "Score not included"; continue; }
+    if (r.fam === "Score"){ r.list = st.includeScore ? Array(st.scoreCopies).fill(null) : []; r.note = st.includeScore ? "Score" : "Score not included"; continue; }
     if (!p){ r.note = "No players entered"; continue; }
     if (r.fam === "Percussion"){
-      if (st.percAll){ r.auto = p; r.note = "Every percussionist" + incl; } else { r.auto = 1; r.note = "1 each — adjust"; }
+      if (st.percAll){ r.list = list.slice(); r.note = "Every percussionist" + incl; } else { r.list = [null]; r.note = "1 each — adjust"; }
       continue;
     }
     const set = numsBy[r.fam];
     if (r.nums.length && set && set.size > 1){
-      const list = [...set].sort((a,b) => a-b), n = list.length, base = Math.floor(p/n), rem = p % n;
-      const share = num => { const i = list.indexOf(num); const extra = st.oddTo === "first" ? i < rem : i >= n - rem; return base + (extra ? 1 : 0); };
-      r.auto = r.nums.reduce((s, num) => s + share(num), 0);
+      const parts = [...set].sort((a,b) => a-b), n = parts.length, base = Math.floor(p/n), rem = p % n;
+      let offset = 0; const span = {};
+      parts.forEach((num, i) => { const sh = base + ((st.oddTo === "first" ? i < rem : i >= n - rem) ? 1 : 0); span[num] = [offset, offset + sh]; offset += sh; });
+      r.list = r.nums.reduce((acc, num) => acc.concat(list.slice(span[num][0], span[num][1])), []);
       r.note = (r.nums.length > 1 ? `${p} players, combined part` : `${p} players ÷ ${n} parts`) + incl;
-    } else { r.auto = p; r.note = "All players" + incl; }
+    } else { r.list = list.slice(); r.note = "All players" + incl; }
   }
 
   // players with no part in this set
   const missing = [];
   for (const id of INSTR_IDS){
-    const p = c[id] || 0;
-    if (!p) continue;
+    const g = groups[id];
+    if (!g.length) continue;
     if (rows.some(r => r.fam === id && !r.dup)) continue;
     const target = st.fallbacks[id] || "";
     let hit = null;
@@ -387,13 +522,19 @@ function plan(){
       if (cands.length){
         const hi = r => r.nums.length ? Math.max(...r.nums) : 0;
         hit = cands.reduce((a, b) => which === "low" ? (hi(b) > hi(a) ? b : a) : (hi(b) < hi(a) ? b : a));
-        hit.auto += p; hit.note += ` + ${p} ${SHORT(id)}`;
+        hit.list = hit.list.concat(g); hit.note += ` + ${g.length} ${SHORT(id)}`;
       }
     }
-    missing.push({ id, players:p, target, applied: !!hit });
+    missing.push({ id, players:g.length, target, applied: !!hit });
   }
-  for (const r of rows) if (r.auto > 0 && r.fam !== "Score") r.auto += st.spares;
-  for (const r of rows) r.copies = (r.override ?? null) !== null ? r.override : r.auto;
+  for (const r of rows) if (r.list.length && r.fam !== "Score") r.list = r.list.concat(Array(st.spares).fill(null));
+  for (const r of rows){
+    r.auto = r.list.length;
+    const ov = (r.override ?? null) !== null ? r.override : null;
+    r.copies = ov !== null ? ov : r.auto;
+    r.print = ov === null ? r.list : (ov <= r.list.length ? r.list.slice(0, ov) : r.list.concat(Array(ov - r.list.length).fill(null)));
+    r.names = r.print.filter(Boolean);
+  }
   return { rows, missing };
 }
 
@@ -415,9 +556,83 @@ function renderEnsemble(){
           <button type="button" data-step="1" data-for="${esc(id)}" aria-label="One more ${esc(lab)}">+</button>
         </div></div>`;
     }).join("") + `</div></div>`).join("");
+  const ros = roster();
+  $("countGrid").querySelectorAll(".tiles").forEach(t => t.classList.toggle("locked", !!ros));
+  $("countGrid").querySelectorAll("input[data-inst]").forEach(i => { i.readOnly = !!ros; i.tabIndex = ros ? -1 : 0; });
+  renderRoster();
   renderTotal();
   $("ensDelete").disabled = Object.keys(saved.ensembles).length < 2;
 }
+let rosterOpen = false;
+function renderRoster(){
+  const ros = roster(), box = $("rosterBox");
+  if (ros){
+    const v = rosterView(ros), when = new Date(ros.imported);
+    box.innerHTML = `<div class="roster-card has">
+      <div class="roster-head">
+        <div class="t"><b>Roster: ${v.total} student${v.total === 1 ? "" : "s"}</b>
+          <span>Imported ${esc(isNaN(when) ? "" : when.toLocaleDateString())} · counts below come from the roster · split parts follow chair order</span></div>
+        <div class="row">
+          <label class="chk"><input type="checkbox" id="rosterNames" ${ros.names !== false ? "checked" : ""}> Print names on parts</label>
+          <button type="button" id="rosterReplace">Replace roster</button>
+          <button type="button" id="rosterForget">Forget roster</button>
+        </div>
+      </div>
+      ${v.notes.length ? `<ul class="roster-notes">${v.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
+      <p class="note" style="margin:8px 0 0">Names are saved only in this browser. On a shared computer, click Forget roster when you're done.</p>
+      ${importPanel()}
+    </div>`;
+  } else {
+    box.innerHTML = `<div class="roster-card">
+      <div class="roster-head">
+        <div class="t"><b>Have a roster with chair placements? (optional)</b>
+          <span>Import names to print one named copy per student, with split parts assigned by chair.</span></div>
+        <button type="button" id="rosterOpenBtn">Import roster</button>
+      </div>
+      ${importPanel()}
+    </div>`;
+  }
+}
+function importPanel(){
+  return `<div class="roster-import" ${rosterOpen ? "" : "hidden"}>
+    <ol>
+      <li>In your spreadsheet, select the columns <b>Name</b>, <b>Instrument</b> and <b>Chair</b> (a header row is fine — extra columns are ignored).</li>
+      <li>Copy and paste them below, or upload a CSV file.</li>
+    </ol>
+    <textarea id="rosterText" placeholder="Name&#9;Instrument&#9;Chair&#10;Smith, Jordan&#9;Trumpet&#9;1&#10;Lee, Ava&#9;Trumpet&#9;2nd"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button type="button" class="primary" id="rosterImport">Import</button>
+      <button type="button" id="rosterCancel">Cancel</button>
+      <label class="link" style="cursor:pointer;color:var(--accent);text-decoration:underline;font-size:14px">Upload CSV<input type="file" id="rosterFile" accept=".csv,.tsv,.txt,text/csv" hidden></label>
+    </div>
+    <div class="roster-msg" id="rosterMsg"></div>
+  </div>`;
+}
+$("rosterBox").addEventListener("click", e => {
+  const id = e.target.id;
+  if (id === "rosterOpenBtn" || id === "rosterReplace"){ rosterOpen = true; renderRoster(); const t = $("rosterText"); if (t) t.focus(); }
+  if (id === "rosterCancel"){ rosterOpen = false; renderRoster(); }
+  if (id === "rosterForget"){
+    if (!confirm(`Forget the roster for "${saved.current}"? Counts stay as they are now.`)) return;
+    delete saved.rosters[saved.current]; persist(); rosterOpen = false; renderEnsemble(); refresh();
+  }
+  if (id === "rosterImport"){
+    const res = importRoster($("rosterText").value);
+    if (res.error){ $("rosterMsg").className = "roster-msg err"; $("rosterMsg").textContent = res.error; return; }
+    saved.rosters = saved.rosters || {};
+    const prev = roster();
+    if (prev && prev.names === false) res.roster.names = false;
+    saved.rosters[saved.current] = res.roster;
+    syncCountsFromRoster(); persist(); rosterOpen = false; renderEnsemble(); refresh();
+  }
+});
+$("rosterBox").addEventListener("change", async e => {
+  if (e.target.id === "rosterNames"){ roster().names = e.target.checked; persist(); refresh(); }
+  if (e.target.id === "rosterFile" && e.target.files[0]){
+    $("rosterText").value = await e.target.files[0].text();
+    $("rosterMsg").className = "roster-msg"; $("rosterMsg").textContent = `Loaded ${e.target.files[0].name} — click Import.`;
+  }
+});
 function renderTotal(){
   const t = INSTR_IDS.reduce((s, id) => s + (counts()[id] || 0), 0);
   $("countTotal").textContent = `${t} player${t === 1 ? "" : "s"} in ${saved.current}`;
@@ -430,17 +645,17 @@ function setCount(inst, v){
   persist(); renderTotal(); refresh();
 }
 $("countGrid").addEventListener("input", e => {
-  const inst = e.target.dataset.inst; if (!inst) return;
+  const inst = e.target.dataset.inst; if (!inst || roster()) return;
   setCount(inst, parseInt(e.target.value, 10));
 });
 $("countGrid").addEventListener("focusin", e => { if (e.target.dataset.inst) e.target.select(); });
 $("countGrid").addEventListener("click", e => {
-  const b = e.target.closest("[data-step]"); if (!b) return;
+  const b = e.target.closest("[data-step]"); if (!b || roster()) return;
   const inst = b.dataset.for, input = $("cnt-" + inst);
   const v = (counts()[inst] || 0) + parseInt(b.dataset.step, 10);
   input.value = Math.max(0, v); setCount(inst, v);
 });
-$("ensSelect").addEventListener("change", e => { saved.current = e.target.value; persist(); renderEnsemble(); refresh(); });
+$("ensSelect").addEventListener("change", e => { saved.current = e.target.value; rosterOpen = false; persist(); renderEnsemble(); refresh(); });
 $("ensNew").addEventListener("click", () => {
   const name = (prompt("Name for the new ensemble (e.g. 7th Grade Band):") || "").trim();
   if (!name) return;
@@ -452,12 +667,14 @@ $("ensRename").addEventListener("click", () => {
   if (!name || name === saved.current) return;
   if (saved.ensembles[name]) { alert("An ensemble with that name already exists."); return; }
   saved.ensembles[name] = saved.ensembles[saved.current]; delete saved.ensembles[saved.current];
+  if (saved.rosters && saved.rosters[saved.current]){ saved.rosters[name] = saved.rosters[saved.current]; delete saved.rosters[saved.current]; }
   saved.current = name; persist(); renderEnsemble(); refresh();
 });
 $("ensDelete").addEventListener("click", () => {
   if (Object.keys(saved.ensembles).length < 2) return;
   if (!confirm(`Delete "${saved.current}"?`)) return;
-  delete saved.ensembles[saved.current]; saved.current = Object.keys(saved.ensembles)[0]; persist(); renderEnsemble(); refresh();
+  delete saved.ensembles[saved.current]; if (saved.rosters) delete saved.rosters[saved.current];
+  saved.current = Object.keys(saved.ensembles)[0]; persist(); renderEnsemble(); refresh();
 });
 
 /* ---------------------------------------------------------------- UI: settings */
@@ -629,7 +846,7 @@ function refresh(){
       <td><select data-field="fam">${famOptions(r.fam)}</select></td>
       <td><div class="copies"><input type="number" min="0" max="500" data-field="copies" value="${r.copies}" class="${edited ? "edited" : ""}">
         ${edited ? `<button class="link" data-reset="${r.start}" title="Back to automatic">auto (${r.auto})</button>` : ""}</div></td>
-      <td class="note">${esc(edited ? "Set by hand" : r.note)}</td></tr>`;
+      <td class="note">${esc(edited ? "Set by hand" : r.note)}${r.names.length ? `<div class="names">${r.names.map(esc).join(", ")}</div>` : ""}</td></tr>`;
   }).join("");
   paintPageMap();
   // stats
@@ -670,7 +887,7 @@ $("buildBtn").addEventListener("click", async () => {
   const btn = $("buildBtn"), status = $("buildStatus");
   btn.disabled = true; status.textContent = "Building…";
   try {
-    const { PDFDocument, PDFName, PDFPage } = PDFLib;
+    const { PDFDocument, PDFName, PDFPage, StandardFonts, rgb, degrees } = PDFLib;
     let src;
     try { src = await PDFDocument.load(state.bytes); }
     catch (err) {
@@ -681,8 +898,42 @@ $("buildBtn").addEventListener("click", async () => {
     let index = 0;
     const insertRef = (ref, node) => { const parent = out.catalog.insertLeafNode(ref, index++); node.setParent(parent); };
     const { rows } = plan();
+    let font = null;
+    const safe = s => {
+      try { font.encodeText(s); return s; }
+      catch (e) { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E\xA0-\xFF]/g, ""); }
+    };
+    const stamp = (page, name) => {
+      const { width, height } = page.getSize(), size = 12, padX = 6, padY = 4, margin = 24;
+      const text = safe(name), tw = font.widthOfTextAtSize(text, size);
+      const bw = tw + 2*padX, bh = size + 2*padY, bx = width - margin - bw, by = height - margin - bh;
+      page.drawRectangle({ x: bx, y: by, width: bw, height: bh, color: rgb(1,1,1), borderColor: rgb(0,0,0), borderWidth: 0.8 });
+      page.drawText(text, { x: bx + padX, y: by + padY + 2, size, font, color: rgb(0,0,0) });
+    };
+    const srcPages = src.getPages();
     for (const r of rows){
       if (r.copies <= 0) continue;
+      if (r.names.length){
+        if (!font) font = await out.embedFont(StandardFonts.HelveticaBold);
+        const pagesIn = srcPages.slice(r.start - 1, r.end);
+        const emb = await out.embedPages(pagesIn);
+        for (const who of r.print){
+          let lastSize = null;
+          pagesIn.forEach((sp, i) => {
+            const e = emb[i], w = e.width, h = e.height, ang = ((sp.getRotation().angle % 360) + 360) % 360;
+            const page = PDFPage.create(out);
+            if (ang === 90){ page.setSize(h, w); page.drawPage(e, { x: 0, y: w, rotate: degrees(-90) }); }
+            else if (ang === 180){ page.setSize(w, h); page.drawPage(e, { x: w, y: h, rotate: degrees(180) }); }
+            else if (ang === 270){ page.setSize(h, w); page.drawPage(e, { x: h, y: 0, rotate: degrees(90) }); }
+            else { page.setSize(w, h); page.drawPage(e, { x: 0, y: 0 }); }
+            if (who) stamp(page, who);
+            lastSize = page.getSize();
+            insertRef(page.ref, page.node);
+          });
+          if (S().duplex && r.pages % 2){ const blank = PDFPage.create(out); blank.setSize(lastSize.width, lastSize.height); insertRef(blank.ref, blank.node); }
+        }
+        continue;
+      }
       const idxs = []; for (let p = r.start; p <= r.end; p++) idxs.push(p - 1);
       const copied = await out.copyPages(src, idxs);
       for (let c = 0; c < r.copies; c++){
