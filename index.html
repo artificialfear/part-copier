@@ -51,8 +51,18 @@ select,input[type=text],input[type=number]{border:1px solid var(--line-strong);b
 input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px}
 input[type=number]{width:64px;text-align:center}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px 18px}
-.grid label{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line)}
+.sec{margin-top:14px}
+.sec-title{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:8px}
+.tile{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 8px 8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--field);transition:border-color .12s}
+.tile.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.tile:focus-within{border-color:var(--accent)}
+.tile-name{font-weight:500;cursor:pointer;min-width:0}
+.stepper{display:flex;align-items:center;flex:none;border:1px solid var(--line-strong);border-radius:7px;overflow:hidden;background:var(--field)}
+.stepper button{border:none;border-radius:0;background:var(--raised);width:30px;height:32px;padding:0;font-size:17px;line-height:1}
+.stepper button:hover{background:var(--hover)}
+.stepper input[type=number]{border:none;border-left:1px solid var(--line-strong);border-right:1px solid var(--line-strong);border-radius:0;width:44px;height:32px;padding:0;-moz-appearance:textfield}
+.stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .total{margin-top:10px;font-weight:600}
 details.settings{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
 details.settings summary{cursor:pointer;font-weight:600}
@@ -127,7 +137,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
       <button id="ensRename">Rename</button>
       <button id="ensDelete">Delete</button>
     </div>
-    <div class="grid" id="countGrid" style="margin-top:12px"></div>
+    <div id="countGrid"></div>
     <div class="total" id="countTotal"></div>
 
     <details class="settings" id="settingsBox">
@@ -216,13 +226,15 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
 pdfjsLib.GlobalWorkerOptions.workerSrc = "lib/pdf.worker.min.js";
 
 /* ---------------------------------------------------------------- instruments & detection */
-const INSTR = [
-  ["Flute","Flute / Piccolo"],["Oboe","Oboe"],["Bassoon","Bassoon"],["Clarinet","Clarinet"],
-  ["Bass Clarinet","Bass / Alto Clarinet"],["Alto Sax","Alto Sax"],["Tenor Sax","Tenor Sax"],["Bari Sax","Bari Sax"],
-  ["Trumpet","Trumpet / Cornet"],["Horn","Horn"],["Trombone","Trombone"],
-  ["Euphonium BC","Euphonium / Baritone B.C."],["Euphonium TC","Euphonium / Baritone T.C."],["Tuba","Tuba"],
-  ["Percussion","Percussion (all)"],["Piano","Piano / Keyboard"],["String Bass","String / Electric Bass"]
+const SECTIONS = [
+  ["Woodwinds", [["Flute","Flute / Piccolo"],["Oboe","Oboe"],["Bassoon","Bassoon"],["Clarinet","Clarinet"],
+                 ["Alto Clarinet","Alto Clarinet"],["Bass Clarinet","Bass Clarinet"],
+                 ["Alto Sax","Alto Sax"],["Tenor Sax","Tenor Sax"],["Bari Sax","Bari Sax"]]],
+  ["Brass", [["Trumpet","Trumpet"],["Cornet","Cornet"],["Horn","Horn"],["Trombone","Trombone"],
+             ["Euphonium BC","Euphonium B.C."],["Euphonium TC","Euphonium T.C."],["Tuba","Tuba"]]],
+  ["Percussion & other", [["Percussion","Percussion"],["Piano","Piano / Keyboard"],["String Bass","String / Electric Bass"]]]
 ];
+const INSTR = SECTIONS.flatMap(s => s[1]);
 const INSTR_IDS = INSTR.map(x => x[0]);
 const LABEL = Object.fromEntries(INSTR);
 LABEL["Score"] = "Score"; LABEL["Other"] = "Not a part / unknown";
@@ -233,9 +245,9 @@ const RX = [
   [/\b(full\s+)?(conductor|score)\b/, "Score"],
   [/\bpiccolo\b/, "Flute"], [/\bflutes?\b/, "Flute"],
   [/\boboes?\b/, "Oboe"], [/\bbassoons?\b/, "Bassoon"],
-  [/\b(bass|contra(alto|bass)?|alto)\s+clarinet/, "Bass Clarinet"], [/\bclarinets?\b/, "Clarinet"],
+  [/\balto\s+clarinet/, "Alto Clarinet"], [/\b(bass|contra(alto|bass)?)\s+clarinet/, "Bass Clarinet"], [/\bclarinets?\b/, "Clarinet"],
   [/\bbari(tone)?\s+sax/, "Bari Sax"], [/\btenor\s+sax/, "Tenor Sax"], [/\balto\s+sax/, "Alto Sax"], [/\bsaxophones?\b/, "Alto Sax"],
-  [/\b(trumpets?|cornets?|flugelhorns?)\b/, "Trumpet"],
+  [/\b(trumpets?|flugelhorns?)\b/, "Trumpet"], [/\bcornets?\b/, "Cornet"],
   [/\bhorns?\b/, "Horn"],
   [/\b(baritone|euphonium)\b[^\n]{0,14}(t\.?\s?c\.?|treble)/, "Euphonium TC"],
   [/\b(baritone|euphonium)\b/, "Euphonium BC"],
@@ -285,7 +297,7 @@ function labelFromLines(lines){
 /* ---------------------------------------------------------------- saved settings */
 const STORE = "partCopier.v1";
 const DEFAULT_SETTINGS = { oddTo:"first", percAll:true, spares:0, includeScore:false, scoreCopies:1, duplex:false,
-                           fallbacks:{ "Bassoon":"Trombone|low" } };
+                           fallbacks:{ "Bassoon":"Trombone|low", "Trumpet":"Cornet|split", "Cornet":"Trumpet|split" } };
 function blankCounts(){ return Object.fromEntries(INSTR_IDS.map(id => [id, 0])); }
 let saved = load();
 function load(){
@@ -327,14 +339,27 @@ function plan(){
   const numsBy = {};
   for (const r of rows) if (!r.dup && r.nums.length) { numsBy[r.fam] = numsBy[r.fam] || new Set(); r.nums.forEach(n => numsBy[r.fam].add(n)); }
 
+  // instruments with no part of their own whose players split across another instrument's parts
+  const present = new Set(rows.filter(r => !r.dup).map(r => r.fam));
+  const pooled = {}, pooledFrom = {};
+  for (const id of INSTR_IDS){
+    const p = c[id] || 0, target = st.fallbacks[id] || "";
+    if (!p || present.has(id) || !target.endsWith("|split")) continue;
+    const fam = target.split("|")[0];
+    if (!present.has(fam)) continue;
+    pooled[fam] = (pooled[fam] || 0) + p;
+    (pooledFrom[fam] = pooledFrom[fam] || []).push(`${p} ${SHORT(id)}`);
+  }
+
   for (const r of rows){
-    const p = c[r.fam] || 0;
+    const p = (c[r.fam] || 0) + (pooled[r.fam] || 0);
+    const incl = pooledFrom[r.fam] ? ` (incl. ${pooledFrom[r.fam].join(", ")})` : "";
     if (r.fam === "Other"){ r.note = "Not counted — pick an instrument if this is a part"; r.flag = r.pages > 0 && r.label !== "Front matter"; continue; }
     if (r.dup){ r.note = "Duplicate of an earlier part"; continue; }
     if (r.fam === "Score"){ r.auto = st.includeScore ? st.scoreCopies : 0; r.note = st.includeScore ? "Score" : "Score not included"; continue; }
     if (!p){ r.note = "No players entered"; continue; }
     if (r.fam === "Percussion"){
-      if (st.percAll){ r.auto = p; r.note = "Every percussionist"; } else { r.auto = 1; r.note = "1 each — adjust"; }
+      if (st.percAll){ r.auto = p; r.note = "Every percussionist" + incl; } else { r.auto = 1; r.note = "1 each — adjust"; }
       continue;
     }
     const set = numsBy[r.fam];
@@ -342,8 +367,8 @@ function plan(){
       const list = [...set].sort((a,b) => a-b), n = list.length, base = Math.floor(p/n), rem = p % n;
       const share = num => { const i = list.indexOf(num); const extra = st.oddTo === "first" ? i < rem : i >= n - rem; return base + (extra ? 1 : 0); };
       r.auto = r.nums.reduce((s, num) => s + share(num), 0);
-      r.note = r.nums.length > 1 ? `${p} players, combined part` : `${p} players ÷ ${n} parts`;
-    } else { r.auto = p; r.note = "All players"; }
+      r.note = (r.nums.length > 1 ? `${p} players, combined part` : `${p} players ÷ ${n} parts`) + incl;
+    } else { r.auto = p; r.note = "All players" + incl; }
   }
 
   // players with no part in this set
@@ -354,7 +379,9 @@ function plan(){
     if (rows.some(r => r.fam === id && !r.dup)) continue;
     const target = st.fallbacks[id] || "";
     let hit = null;
-    if (target){
+    if (target.endsWith("|split")){
+      if (present.has(target.split("|")[0])) hit = true;
+    } else if (target){
       const [fam, which] = target.split("|");
       const cands = rows.filter(r => r.fam === fam && !r.dup);
       if (cands.length){
@@ -376,8 +403,18 @@ const esc = s => String(s).replace(/[&<>"']/g, ch => ({ "&":"&amp;","<":"&lt;","
 
 function renderEnsemble(){
   $("ensSelect").innerHTML = Object.keys(saved.ensembles).map(n => `<option ${n === saved.current ? "selected" : ""}>${esc(n)}</option>`).join("");
-  $("countGrid").innerHTML = INSTR.map(([id, lab]) =>
-    `<label>${esc(lab)} <input type="number" min="0" max="200" data-inst="${esc(id)}" value="${counts()[id] || 0}"></label>`).join("");
+  $("countGrid").innerHTML = SECTIONS.map(([sec, list]) =>
+    `<div class="sec"><div class="sec-title">${esc(sec)}</div><div class="tiles">` +
+    list.map(([id, lab]) => {
+      const v = counts()[id] || 0;
+      return `<div class="tile ${v > 0 ? "on" : ""}" data-tile="${esc(id)}">
+        <label class="tile-name" for="cnt-${esc(id)}">${esc(lab)}</label>
+        <div class="stepper">
+          <button type="button" data-step="-1" data-for="${esc(id)}" aria-label="One fewer ${esc(lab)}">−</button>
+          <input type="number" min="0" max="200" id="cnt-${esc(id)}" data-inst="${esc(id)}" value="${v}" inputmode="numeric">
+          <button type="button" data-step="1" data-for="${esc(id)}" aria-label="One more ${esc(lab)}">+</button>
+        </div></div>`;
+    }).join("") + `</div></div>`).join("");
   renderTotal();
   $("ensDelete").disabled = Object.keys(saved.ensembles).length < 2;
 }
@@ -385,10 +422,23 @@ function renderTotal(){
   const t = INSTR_IDS.reduce((s, id) => s + (counts()[id] || 0), 0);
   $("countTotal").textContent = `${t} player${t === 1 ? "" : "s"} in ${saved.current}`;
 }
+function setCount(inst, v){
+  v = Math.max(0, Math.min(200, v || 0));
+  counts()[inst] = v;
+  const tile = $("countGrid").querySelector(`[data-tile="${inst}"]`);
+  if (tile) tile.classList.toggle("on", v > 0);
+  persist(); renderTotal(); refresh();
+}
 $("countGrid").addEventListener("input", e => {
   const inst = e.target.dataset.inst; if (!inst) return;
-  counts()[inst] = Math.max(0, parseInt(e.target.value, 10) || 0);
-  persist(); renderTotal(); refresh();
+  setCount(inst, parseInt(e.target.value, 10));
+});
+$("countGrid").addEventListener("focusin", e => { if (e.target.dataset.inst) e.target.select(); });
+$("countGrid").addEventListener("click", e => {
+  const b = e.target.closest("[data-step]"); if (!b) return;
+  const inst = b.dataset.for, input = $("cnt-" + inst);
+  const v = (counts()[inst] || 0) + parseInt(b.dataset.step, 10);
+  input.value = Math.max(0, v); setCount(inst, v);
 });
 $("ensSelect").addEventListener("change", e => { saved.current = e.target.value; persist(); renderEnsemble(); refresh(); });
 $("ensNew").addEventListener("click", () => {
@@ -537,12 +587,12 @@ function paintPageMap(){
 /* ---------------------------------------------------------------- UI: parts table */
 function famOptions(sel){ return FAMS.map(f => `<option value="${esc(f)}" ${f === sel ? "selected" : ""}>${esc(LABEL[f])}</option>`).join(""); }
 function fallbackOptions(id, cur, rows){
-  const c = counts(), curFam = (cur || "").split("|")[0];
-  const fams = [...new Set(rows.filter(r => INSTR_IDS.includes(r.fam) && !r.dup && ((c[r.fam] || 0) > 0 || r.fam === curFam)).map(r => r.fam))];
+  const fams = INSTR_IDS.filter(f => rows.some(r => r.fam === f && !r.dup));
   let html = `<option value="">no copies</option>`;
   for (const f of fams){
     const multi = f !== "Percussion" && rows.filter(r => r.fam === f && !r.dup).length > 1;
     if (multi){
+      html += `<option value="${esc(f)}|split" ${cur === f+"|split" ? "selected" : ""}>${esc(LABEL[f])} — split across its parts</option>`;
       html += `<option value="${esc(f)}|top" ${cur === f+"|top" ? "selected" : ""}>${esc(LABEL[f])} — top part</option>`;
       html += `<option value="${esc(f)}|low" ${cur === f+"|low" ? "selected" : ""}>${esc(LABEL[f])} — lowest part</option>`;
     } else {
