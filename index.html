@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Part Copier</title>
+<meta name="description" content="Turn a full set of band parts into one print-ready PDF with the right number of copies of each part.">
+<style>
+:root{
+  --ink:#1d1c1a; --muted:#6a655c; --paper:#f6f4ef; --card:#ffffff; --line:#e2ddd2; --line-strong:#cfc8ba;
+  --accent:#1f5a73; --accent-ink:#ffffff; --accent-soft:#e4eef3;
+  --warn:#7a4f00; --warn-soft:#fbf1d8; --ok:#2c6a3a; --ok-soft:#e5f2e6;
+  --band-a:#1f5a73; --band-b:#b0612a;
+  --radius:10px; --font:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--font);color:var(--ink);background:var(--paper);line-height:1.45;font-size:15px}
+header{padding:28px 16px 8px;max-width:1080px;margin:0 auto}
+header h1{margin:0;font-size:26px;letter-spacing:-.01em}
+header p{margin:6px 0 0;color:var(--muted);max-width:680px}
+main{max-width:1080px;margin:0 auto;padding:8px 16px 40px}
+section.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-top:16px}
+h2{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:10px}
+h2 .n{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:14px;font-weight:700;flex:none}
+.hint{color:var(--muted);font-size:13.5px;margin:0 0 12px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select,input{font:inherit;color:inherit}
+button{border:1px solid var(--line-strong);background:#fff;border-radius:8px;padding:7px 12px;cursor:pointer}
+button:hover{background:#f2efe8}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600;padding:10px 18px}
+button.primary:hover{filter:brightness(1.08)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.link{border:none;background:none;color:var(--accent);padding:2px 4px;text-decoration:underline;font-size:13px}
+select,input[type=text],input[type=number]{border:1px solid var(--line-strong);border-radius:7px;padding:6px 8px;background:#fff}
+input[type=number]{width:64px;text-align:center}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px 18px}
+.grid label{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line)}
+.total{margin-top:10px;font-weight:600}
+details.settings{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+details.settings summary{cursor:pointer;font-weight:600}
+.set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px 24px;margin-top:12px}
+.set-grid label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.drop{display:block;border:2px dashed var(--line-strong);border-radius:var(--radius);padding:26px;text-align:center;background:#fbfaf7;cursor:pointer}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop strong{display:block;font-size:16px}
+.status{margin-top:10px;color:var(--muted);font-size:14px}
+.notice{border-radius:8px;padding:10px 12px;margin:0 0 12px;font-size:14px}
+.notice.warn{background:var(--warn-soft);color:var(--warn)}
+.notice.ok{background:var(--ok-soft);color:var(--ok)}
+.notice.info{background:var(--accent-soft);color:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:var(--muted);font-size:12.5px;text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--line-strong);padding:6px}
+td{border-bottom:1px solid var(--line);padding:6px;vertical-align:middle}
+td input[type=text]{width:100%;min-width:140px}
+tr.zero td{color:#9a958c}
+tr.zero td input,tr.zero td select{color:#9a958c}
+tr.flag td{background:var(--warn-soft)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.note{font-size:12.5px;color:var(--muted)}
+.copies{display:flex;align-items:center;gap:4px}
+.copies input.edited{border-color:var(--band-b);background:#fff6ef}
+.missing{margin:0 0 12px;padding:0;list-style:none}
+.missing li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;background:var(--warn-soft);border-radius:8px;margin-bottom:6px;color:var(--warn);font-size:14px}
+.pages{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;margin-top:12px}
+.pg{border:3px solid transparent;border-radius:8px;background:#fbfaf7;padding:5px;font-size:12px;position:relative}
+.pg canvas{width:100%;display:block;background:#fff;border:1px solid var(--line);min-height:120px}
+.pg .meta{display:flex;justify-content:space-between;align-items:center;margin-top:4px;gap:4px}
+.pg .lbl{font-weight:600;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px;min-height:15px}
+.pg.start{box-shadow:inset 0 0 0 1px rgba(0,0,0,.05)}
+.pg label{display:flex;gap:4px;align-items:center;cursor:pointer}
+.stats{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px}
+.stat{background:#fbfaf7;border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-width:140px}
+.stat b{display:block;font-size:22px}
+.stat span{color:var(--muted);font-size:13px}
+.table-wrap{overflow-x:auto}
+footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);font-size:13px}
+.progress{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:10px}
+.progress div{height:100%;width:0;background:var(--accent);transition:width .15s}
+[hidden]{display:none!important}
+@media (max-width:640px){header h1{font-size:22px} section.card{padding:14px} input[type=number]{width:56px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Part Copier</h1>
+  <p>Drop in a full set of band parts and get back one PDF with the right number of copies of every part, ready to send to the copier as a single job. Your music never leaves your computer.</p>
+</header>
+
+<main>
+  <section class="card" id="s1">
+    <h2><span class="n">1</span>Your ensemble</h2>
+    <p class="hint">Enter how many students play each instrument. Numbers are saved in this browser, so set up each ensemble once.</p>
+    <div class="row">
+      <select id="ensSelect" aria-label="Ensemble"></select>
+      <button id="ensNew">New ensemble</button>
+      <button id="ensRename">Rename</button>
+      <button id="ensDelete">Delete</button>
+    </div>
+    <div class="grid" id="countGrid" style="margin-top:12px"></div>
+    <div class="total" id="countTotal"></div>
+
+    <details class="settings" id="settingsBox">
+      <summary>Print rules</summary>
+      <div class="set-grid">
+        <label>Odd number of players on split parts — extra copy goes to
+          <select id="setOdd"><option value="first">the 1st part</option><option value="last">the last part</option></select></label>
+        <label>Every percussionist gets every percussion part
+          <input type="checkbox" id="setPerc"></label>
+        <label>Spare copies of each part
+          <input type="number" id="setSpares" min="0" max="20"></label>
+        <label>Include the full score
+          <span class="row"><input type="checkbox" id="setScore"><input type="number" id="setScoreCopies" min="1" max="20" title="Score copies"></span></label>
+        <label>Printing double-sided (adds a blank page after odd-length parts)
+          <input type="checkbox" id="setDuplex"></label>
+      </div>
+      <p class="hint" style="margin-top:10px">When nobody plays a split part evenly (e.g. 7 players on 2 parts), the extra copy goes where you choose above. With percussion turned off, each percussion part gets 1 copy and you adjust from there.</p>
+    </details>
+  </section>
+
+  <section class="card" id="s2">
+    <h2><span class="n">2</span>Full set PDF</h2>
+    <label class="drop" id="drop">
+      <strong>Drop the full-set PDF here</strong>
+      <span class="note">or click to choose a file — one PDF that contains every part for one piece</span>
+      <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+    </label>
+    <div class="status" id="loadStatus"></div>
+    <div class="progress" id="progress" hidden><div></div></div>
+  </section>
+
+  <section class="card" id="s3" hidden>
+    <h2><span class="n">3</span>Check the parts</h2>
+    <div id="scanNotice"></div>
+    <ul class="missing" id="missing"></ul>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Pages</th><th>Part name</th><th>Instrument</th><th>Copies</th><th>Why</th></tr></thead>
+        <tbody id="partRows"></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="link" id="resetOverrides">Reset all hand-edited copy counts</button>
+    </div>
+    <details id="mapBox" style="margin-top:14px">
+      <summary style="cursor:pointer;font-weight:600">Page map — fix where parts start</summary>
+      <p class="hint" style="margin-top:8px">Each box is a page. Check “starts a part” on the first page of every part; pages after it belong to that part until the next checked page. Colors alternate so you can see where each part begins and ends.</p>
+      <div class="pages" id="pages"></div>
+    </details>
+  </section>
+
+  <section class="card" id="s4" hidden>
+    <h2><span class="n">4</span>Print</h2>
+    <div class="stats" id="stats"></div>
+    <div class="row">
+      <input type="text" id="outName" style="flex:1;min-width:240px" aria-label="File name">
+      <button class="primary" id="buildBtn">Download print PDF</button>
+    </div>
+    <div class="status" id="buildStatus"></div>
+  </section>
+</main>
+
+<footer>
+  <p>Only copy music you have the right to copy. Many publishers' licenses limit photocopying; digital sets often include permission to print for your own ensemble. This tool doesn't change what your license allows.</p>
+  <p>Everything runs in your browser — no files are uploaded. Ensemble numbers and print rules are saved only in this browser.</p>
+</footer>
+
+<script src="lib/pdf.min.js"></script>
+<script src="lib/pdf-lib.min.js"></script>
+<script>
+"use strict";
+pdfjsLib.GlobalWorkerOptions.workerSrc = "lib/pdf.worker.min.js";
+
+/* ---------------------------------------------------------------- instruments & detection */
+const INSTR = [
+  ["Flute","Flute / Piccolo"],["Oboe","Oboe"],["Bassoon","Bassoon"],["Clarinet","Clarinet"],
+  ["Bass Clarinet","Bass / Alto Clarinet"],["Alto Sax","Alto Sax"],["Tenor Sax","Tenor Sax"],["Bari Sax","Bari Sax"],
+  ["Trumpet","Trumpet / Cornet"],["Horn","Horn"],["Trombone","Trombone"],
+  ["Euphonium BC","Euphonium / Baritone B.C."],["Euphonium TC","Euphonium / Baritone T.C."],["Tuba","Tuba"],
+  ["Percussion","Percussion (all)"],["Piano","Piano / Keyboard"],["String Bass","String / Electric Bass"]
+];
+const INSTR_IDS = INSTR.map(x => x[0]);
+const LABEL = Object.fromEntries(INSTR);
+LABEL["Score"] = "Score"; LABEL["Other"] = "Not a part / unknown";
+const FAMS = INSTR_IDS.concat(["Score","Other"]);
+const SHORT = id => LABEL[id].split(" /")[0].replace(/\s*\(.*\)/, "").toLowerCase();
+
+const RX = [
+  [/\b(full\s+)?(conductor|score)\b/, "Score"],
+  [/\bpiccolo\b/, "Flute"], [/\bflutes?\b/, "Flute"],
+  [/\boboes?\b/, "Oboe"], [/\bbassoons?\b/, "Bassoon"],
+  [/\b(bass|contra(alto|bass)?|alto)\s+clarinet/, "Bass Clarinet"], [/\bclarinets?\b/, "Clarinet"],
+  [/\bbari(tone)?\s+sax/, "Bari Sax"], [/\btenor\s+sax/, "Tenor Sax"], [/\balto\s+sax/, "Alto Sax"], [/\bsaxophones?\b/, "Alto Sax"],
+  [/\b(trumpets?|cornets?|flugelhorns?)\b/, "Trumpet"],
+  [/\bhorns?\b/, "Horn"],
+  [/\b(baritone|euphonium)\b[^\n]{0,14}(t\.?\s?c\.?|treble)/, "Euphonium TC"],
+  [/\b(baritone|euphonium)\b/, "Euphonium BC"],
+  [/\btrombones?\b/, "Trombone"], [/\btubas?\b/, "Tuba"],
+  [/\b(mallets?|bells|glockenspiel|xylophone|marimba|vibraphone|chimes)\b/, "Percussion"],
+  [/\btimpani\b/, "Percussion"],
+  [/\b(percussion|snare|bass drum|auxiliary|drum ?set|drums?)\b/, "Percussion"],
+  [/\b(piano|keyboard)\b/, "Piano"],
+  [/\b(string bass|electric bass|bass guitar)\b/, "String Bass"]
+];
+const norm = t => t.toLowerCase().replace(/♭/g, "b");
+
+function classify(text){
+  const t = norm(text), hits = [];
+  for (const [re, fam] of RX) if (re.test(t)) hits.push(fam);
+  const distinct = new Set(hits); distinct.delete("Percussion");
+  if (hits.includes("Score") || distinct.size >= 5) return "Score";
+  return hits[0] || null;
+}
+function partNums(label){
+  const t = norm(label);
+  let m = t.match(/\b([1-4])(?:st|nd|rd|th)?\s*(?:&|and|\/|-|–|,)\s*([1-4])(?:st|nd|rd|th)?\b/);
+  if (m){ const a=+m[1], b=+m[2], out=[]; for (let i=Math.min(a,b); i<=Math.max(a,b); i++) out.push(i); return out; }
+  m = t.match(/\b([1-4])(?:st|nd|rd|th)?\b/);
+  if (m) return [+m[1]];
+  m = t.match(/(clarinet|trumpet|cornet|trombone|horn|flute|sax(?:ophone)?|percussion)\s+(iv|iii|ii|i)\b/);
+  if (m) return [{i:1,ii:2,iii:3,iv:4}[m[2]]];
+  return [];
+}
+function cleanLabel(s){
+  s = s.replace(/\s[-–]\s*\d+\s*[-–]?\s*$/, "");
+  s = s.replace(/\b(page|pg|p)\.?\s*\d+(\s*(of|\/)\s*\d+)?/gi, "");
+  s = s.replace(/\b\d+\s*\/\s*\d+\b/g, "");
+  return s.replace(/\s+/g, " ").replace(/^[\s\-–]+|[\s\-–]+$/g, "").slice(0, 60);
+}
+function labelFromLines(lines){
+  const fam = classify(lines.join("\n"));
+  if (!fam) return null;
+  let label = fam;
+  for (const line of lines){
+    const hit = fam === "Score" ? /score|conductor/i.test(line) : classify(line) === fam;
+    if (hit){ label = line; break; }
+  }
+  return { fam, label: cleanLabel(label) || fam };
+}
+
+/* ---------------------------------------------------------------- saved settings */
+const STORE = "partCopier.v1";
+const DEFAULT_SETTINGS = { oddTo:"first", percAll:true, spares:0, includeScore:false, scoreCopies:1, duplex:false,
+                           fallbacks:{ "Bassoon":"Trombone|low" } };
+function blankCounts(){ return Object.fromEntries(INSTR_IDS.map(id => [id, 0])); }
+let saved = load();
+function load(){
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE) || "null");
+    if (s && s.ensembles && Object.keys(s.ensembles).length) {
+      s.settings = Object.assign({}, DEFAULT_SETTINGS, s.settings || {});
+      s.settings.fallbacks = Object.assign({}, DEFAULT_SETTINGS.fallbacks, (s.settings||{}).fallbacks || {});
+      for (const k in s.ensembles) s.ensembles[k] = Object.assign(blankCounts(), s.ensembles[k]);
+      if (!s.ensembles[s.current]) s.current = Object.keys(s.ensembles)[0];
+      return s;
+    }
+  } catch (e) {}
+  return { settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), ensembles: { "My Band": blankCounts() }, current: "My Band" };
+}
+function persist(){ try { localStorage.setItem(STORE, JSON.stringify(saved)); } catch (e) {} }
+const S = () => saved.settings;
+const counts = () => saved.ensembles[saved.current];
+
+/* ---------------------------------------------------------------- piece state */
+const state = { bytes:null, fileName:"", pdf:null, numPages:0, pageInfo:[], starts:new Map(), scanned:false };
+
+function segments(){
+  const keys = [...state.starts.keys()].sort((a,b) => a-b);
+  return keys.map((p, i) => Object.assign({ start:p, end:(i+1 < keys.length ? keys[i+1]-1 : state.numPages), idx:i }, state.starts.get(p)));
+}
+
+/* ---------------------------------------------------------------- copy plan */
+function plan(){
+  const c = counts(), st = S();
+  const rows = segments().map(sg => Object.assign({}, sg, { pages: sg.end - sg.start + 1, nums: [], dup:false, auto:0, note:"", flag:false }));
+  const seen = new Set();
+  for (const r of rows){
+    if (INSTR_IDS.includes(r.fam)) r.nums = partNums(r.label);
+    const key = r.fam + "|" + r.label.toLowerCase().trim();
+    if (r.fam !== "Other" && seen.has(key)) r.dup = true;
+    seen.add(key);
+  }
+  const numsBy = {};
+  for (const r of rows) if (!r.dup && r.nums.length) { numsBy[r.fam] = numsBy[r.fam] || new Set(); r.nums.forEach(n => numsBy[r.fam].add(n)); }
+
+  for (const r of rows){
+    const p = c[r.fam] || 0;
+    if (r.fam === "Other"){ r.note = "Not counted — pick an instrument if this is a part"; r.flag = r.pages > 0 && r.label !== "Front matter"; continue; }
+    if (r.dup){ r.note = "Duplicate of an earlier part"; continue; }
+    if (r.fam === "Score"){ r.auto = st.includeScore ? st.scoreCopies : 0; r.note = st.includeScore ? "Score" : "Score not included"; continue; }
+    if (!p){ r.note = "No players entered"; continue; }
+    if (r.fam === "Percussion"){
+      if (st.percAll){ r.auto = p; r.note = "Every percussionist"; } else { r.auto = 1; r.note = "1 each — adjust"; }
+      continue;
+    }
+    const set = numsBy[r.fam];
+    if (r.nums.length && set && set.size > 1){
+      const list = [...set].sort((a,b) => a-b), n = list.length, base = Math.floor(p/n), rem = p % n;
+      const share = num => { const i = list.indexOf(num); const extra = st.oddTo === "first" ? i < rem : i >= n - rem; return base + (extra ? 1 : 0); };
+      r.auto = r.nums.reduce((s, num) => s + share(num), 0);
+      r.note = r.nums.length > 1 ? `${p} players, combined part` : `${p} players ÷ ${n} parts`;
+    } else { r.auto = p; r.note = "All players"; }
+  }
+
+  // players with no part in this set
+  const missing = [];
+  for (const id of INSTR_IDS){
+    const p = c[id] || 0;
+    if (!p) continue;
+    if (rows.some(r => r.fam === id && !r.dup)) continue;
+    const target = st.fallbacks[id] || "";
+    let hit = null;
+    if (target){
+      const [fam, which] = target.split("|");
+      const cands = rows.filter(r => r.fam === fam && !r.dup);
+      if (cands.length){
+        const hi = r => r.nums.length ? Math.max(...r.nums) : 0;
+        hit = cands.reduce((a, b) => which === "low" ? (hi(b) > hi(a) ? b : a) : (hi(b) < hi(a) ? b : a));
+        hit.auto += p; hit.note += ` + ${p} ${SHORT(id)}`;
+      }
+    }
+    missing.push({ id, players:p, target, applied: !!hit });
+  }
+  for (const r of rows) if (r.auto > 0 && r.fam !== "Score") r.auto += st.spares;
+  for (const r of rows) r.copies = (r.override ?? null) !== null ? r.override : r.auto;
+  return { rows, missing };
+}
+
+/* ---------------------------------------------------------------- UI: ensemble */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[ch]));
+
+function renderEnsemble(){
+  $("ensSelect").innerHTML = Object.keys(saved.ensembles).map(n => `<option ${n === saved.current ? "selected" : ""}>${esc(n)}</option>`).join("");
+  $("countGrid").innerHTML = INSTR.map(([id, lab]) =>
+    `<label>${esc(lab)} <input type="number" min="0" max="200" data-inst="${esc(id)}" value="${counts()[id] || 0}"></label>`).join("");
+  renderTotal();
+  $("ensDelete").disabled = Object.keys(saved.ensembles).length < 2;
+}
+function renderTotal(){
+  const t = INSTR_IDS.reduce((s, id) => s + (counts()[id] || 0), 0);
+  $("countTotal").textContent = `${t} player${t === 1 ? "" : "s"} in ${saved.current}`;
+}
+$("countGrid").addEventListener("input", e => {
+  const inst = e.target.dataset.inst; if (!inst) return;
+  counts()[inst] = Math.max(0, parseInt(e.target.value, 10) || 0);
+  persist(); renderTotal(); refresh();
+});
+$("ensSelect").addEventListener("change", e => { saved.current = e.target.value; persist(); renderEnsemble(); refresh(); });
+$("ensNew").addEventListener("click", () => {
+  const name = (prompt("Name for the new ensemble (e.g. 7th Grade Band):") || "").trim();
+  if (!name) return;
+  if (saved.ensembles[name]) { alert("An ensemble with that name already exists."); return; }
+  saved.ensembles[name] = blankCounts(); saved.current = name; persist(); renderEnsemble(); refresh();
+});
+$("ensRename").addEventListener("click", () => {
+  const name = (prompt("New name:", saved.current) || "").trim();
+  if (!name || name === saved.current) return;
+  if (saved.ensembles[name]) { alert("An ensemble with that name already exists."); return; }
+  saved.ensembles[name] = saved.ensembles[saved.current]; delete saved.ensembles[saved.current];
+  saved.current = name; persist(); renderEnsemble(); refresh();
+});
+$("ensDelete").addEventListener("click", () => {
+  if (Object.keys(saved.ensembles).length < 2) return;
+  if (!confirm(`Delete "${saved.current}"?`)) return;
+  delete saved.ensembles[saved.current]; saved.current = Object.keys(saved.ensembles)[0]; persist(); renderEnsemble(); refresh();
+});
+
+/* ---------------------------------------------------------------- UI: settings */
+function renderSettings(){
+  const st = S();
+  $("setOdd").value = st.oddTo; $("setPerc").checked = st.percAll; $("setSpares").value = st.spares;
+  $("setScore").checked = st.includeScore; $("setScoreCopies").value = st.scoreCopies; $("setScoreCopies").disabled = !st.includeScore;
+  $("setDuplex").checked = st.duplex;
+}
+$("settingsBox").addEventListener("input", () => {
+  const st = S();
+  st.oddTo = $("setOdd").value; st.percAll = $("setPerc").checked;
+  st.spares = Math.max(0, parseInt($("setSpares").value, 10) || 0);
+  st.includeScore = $("setScore").checked; st.scoreCopies = Math.max(1, parseInt($("setScoreCopies").value, 10) || 1);
+  st.duplex = $("setDuplex").checked; $("setScoreCopies").disabled = !st.includeScore;
+  persist(); refresh();
+});
+
+/* ---------------------------------------------------------------- UI: loading a PDF */
+const drop = $("drop");
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) openFile(f); });
+$("file").addEventListener("change", e => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ""; });
+
+function setProgress(frac){ const p = $("progress"); p.hidden = frac == null; if (frac != null) p.firstElementChild.style.width = Math.round(frac*100) + "%"; }
+
+async function openFile(file){
+  if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf"){ $("loadStatus").textContent = "That isn't a PDF."; return; }
+  $("loadStatus").textContent = `Reading ${file.name}…`;
+  $("s3").hidden = $("s4").hidden = true;
+  try {
+    const bytes = await file.arrayBuffer();
+    state.bytes = bytes; state.fileName = file.name;
+    if (state.pdf) { try { state.pdf.destroy(); } catch (e) {} }
+    state.pdf = await pdfjsLib.getDocument({ data: new Uint8Array(bytes.slice(0)) }).promise;
+    state.numPages = state.pdf.numPages; state.pageInfo = [];
+    let withText = 0;
+    for (let i = 1; i <= state.numPages; i++){
+      setProgress(i / state.numPages);
+      const page = await state.pdf.getPage(i);
+      const [x0, y0, x1, y1] = page.view, h = y1 - y0;
+      const tc = await page.getTextContent();
+      const items = tc.items.filter(it => it.str && it.str.trim());
+      if (items.length) withText++;
+      const top = items.filter(it => it.transform[5] > y0 + h*0.78).map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str }));
+      top.sort((a, b) => b.y - a.y || a.x - b.x);
+      const lines = [];
+      for (const it of top){ const L = lines.find(l => Math.abs(l.y - it.y) < 3); if (L) L.items.push(it); else lines.push({ y: it.y, items: [it] }); }
+      const text = lines.map(l => l.items.sort((a, b) => a.x - b.x).map(i => i.s).join(" ").replace(/\s+/g, " ").trim());
+      state.pageInfo.push(Object.assign({ hasText: items.length > 0 }, labelFromLines(text) || {}));
+    }
+    setProgress(null);
+    state.scanned = withText === 0;
+    detectStarts();
+    $("outName").value = file.name.replace(/\.pdf$/i, "") + " - " + saved.current + " - PRINT.pdf";
+    $("loadStatus").textContent = `${file.name} — ${state.numPages} page${state.numPages === 1 ? "" : "s"}`;
+    $("s3").hidden = $("s4").hidden = false;
+    buildPageMap();
+    $("mapBox").open = state.scanned;
+    refresh();
+    $("s3").scrollIntoView({ block: "start" });
+  } catch (err) {
+    setProgress(null);
+    $("loadStatus").textContent = /password/i.test(err && err.message) ? "This PDF is password-protected and can't be opened here." : "Couldn't read that PDF: " + (err && err.message || err);
+  }
+}
+
+function detectStarts(){
+  state.starts = new Map();
+  let cur = null;
+  state.pageInfo.forEach((pi, i) => {
+    const page = i + 1;
+    if (pi.fam && (!cur || cur.label.toLowerCase() !== pi.label.toLowerCase())){
+      cur = { label: pi.label, fam: pi.fam, override: null };
+      state.starts.set(page, cur);
+    } else if (!cur){
+      cur = { label: state.scanned ? "Part 1" : "Front matter", fam: "Other", override: null };
+      state.starts.set(page, cur);
+    }
+  });
+}
+
+/* ---------------------------------------------------------------- UI: page map */
+let observer = null;
+function buildPageMap(){
+  const box = $("pages"); box.innerHTML = "";
+  if (observer) observer.disconnect();
+  observer = new IntersectionObserver(entries => entries.forEach(en => { if (en.isIntersecting){ observer.unobserve(en.target); renderThumb(en.target); } }), { rootMargin: "300px" });
+  for (let p = 1; p <= state.numPages; p++){
+    const d = document.createElement("div");
+    d.className = "pg"; d.dataset.page = p;
+    d.innerHTML = `<canvas></canvas><div class="lbl"></div><div class="meta"><span>p. ${p}</span>
+      <label><input type="checkbox" data-start="${p}" ${p === 1 ? "disabled" : ""}>starts a part</label></div>`;
+    box.appendChild(d); observer.observe(d);
+  }
+}
+async function renderThumb(el){
+  try {
+    const page = await state.pdf.getPage(+el.dataset.page);
+    const vp1 = page.getViewport({ scale: 1 }), scale = 220 / vp1.width, vp = page.getViewport({ scale });
+    const cv = el.querySelector("canvas"); cv.width = vp.width; cv.height = vp.height; cv.style.minHeight = "0";
+    await page.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+  } catch (e) {}
+}
+$("pages").addEventListener("change", e => {
+  const p = +e.target.dataset.start; if (!p) return;
+  if (e.target.checked){
+    const pi = state.pageInfo[p-1] || {};
+    state.starts.set(p, { label: pi.label || ("Part starting p. " + p), fam: pi.fam || "Other", override: null });
+  } else state.starts.delete(p);
+  refresh();
+});
+function paintPageMap(){
+  const segs = segments();
+  segs.forEach(sg => {
+    for (let p = sg.start; p <= sg.end; p++){
+      const el = $("pages").querySelector(`[data-page="${p}"]`); if (!el) continue;
+      el.style.borderColor = sg.idx % 2 ? "var(--band-b)" : "var(--band-a)";
+      el.classList.toggle("start", p === sg.start);
+      el.querySelector(".lbl").textContent = p === sg.start ? sg.label : "";
+      el.querySelector("input").checked = p === sg.start;
+    }
+  });
+}
+
+/* ---------------------------------------------------------------- UI: parts table */
+function famOptions(sel){ return FAMS.map(f => `<option value="${esc(f)}" ${f === sel ? "selected" : ""}>${esc(LABEL[f])}</option>`).join(""); }
+function fallbackOptions(id, cur, rows){
+  const c = counts(), curFam = (cur || "").split("|")[0];
+  const fams = [...new Set(rows.filter(r => INSTR_IDS.includes(r.fam) && !r.dup && ((c[r.fam] || 0) > 0 || r.fam === curFam)).map(r => r.fam))];
+  let html = `<option value="">no copies</option>`;
+  for (const f of fams){
+    const multi = f !== "Percussion" && rows.filter(r => r.fam === f && !r.dup).length > 1;
+    if (multi){
+      html += `<option value="${esc(f)}|top" ${cur === f+"|top" ? "selected" : ""}>${esc(LABEL[f])} — top part</option>`;
+      html += `<option value="${esc(f)}|low" ${cur === f+"|low" ? "selected" : ""}>${esc(LABEL[f])} — lowest part</option>`;
+    } else {
+      html += `<option value="${esc(f)}|low" ${(cur === f+"|low" || cur === f+"|top") ? "selected" : ""}>${esc(LABEL[f])}</option>`;
+    }
+  }
+  return html;
+}
+
+function refresh(){
+  if (!state.numPages) return;
+  const { rows, missing } = plan();
+  // missing instruments
+  const unlabeled = rows.some(r => r.flag);
+  $("missing").innerHTML = unlabeled ? "" : missing.map(m => {
+    const name = LABEL[m.id];
+    return `<li><span><b>${esc(name)}</b>: ${m.players} player${m.players === 1 ? "" : "s"}, but this set has no ${esc(SHORT(m.id))} part. Give them:</span>
+      <select data-fallback="${esc(m.id)}">${fallbackOptions(m.id, m.target, rows)}</select></li>`;
+  }).join("");
+  // notice
+  const unknown = rows.filter(r => r.flag).length;
+  let notice = "";
+  if (state.scanned) notice = `<p class="notice warn">This PDF has no readable text (it's probably a scan), so parts couldn't be found automatically. Open the page map below, check “starts a part” on the first page of each part, then name each part and pick its instrument.</p>`;
+  else if (unknown) notice = `<p class="notice warn">${unknown} section${unknown === 1 ? "" : "s"} couldn't be matched to an instrument. Pick one, or leave it as “Not a part” to skip it.</p>`;
+  else notice = `<p class="notice ok">Found ${rows.filter(r => INSTR_IDS.includes(r.fam)).length} parts. Spot-check the page ranges — open the page map if anything looks merged or split wrong.</p>`;
+  $("scanNotice").innerHTML = notice;
+  // table
+  $("partRows").innerHTML = rows.map(r => {
+    const pages = r.start === r.end ? `${r.start}` : `${r.start}–${r.end}`;
+    const edited = r.override !== null && r.override !== undefined;
+    return `<tr class="${r.copies === 0 ? "zero" : ""} ${r.flag ? "flag" : ""}" data-start="${r.start}">
+      <td><span class="sw" style="background:${r.idx % 2 ? "var(--band-b)" : "var(--band-a)"}"></span>${pages}<div class="note">${r.pages} pg</div></td>
+      <td><input type="text" data-field="label" value="${esc(r.label)}"></td>
+      <td><select data-field="fam">${famOptions(r.fam)}</select></td>
+      <td><div class="copies"><input type="number" min="0" max="500" data-field="copies" value="${r.copies}" class="${edited ? "edited" : ""}">
+        ${edited ? `<button class="link" data-reset="${r.start}" title="Back to automatic">auto (${r.auto})</button>` : ""}</div></td>
+      <td class="note">${esc(edited ? "Set by hand" : r.note)}</td></tr>`;
+  }).join("");
+  paintPageMap();
+  // stats
+  const copies = rows.reduce((s, r) => s + r.copies, 0);
+  const pages = rows.reduce((s, r) => s + r.copies * (r.pages + (S().duplex && r.pages % 2 ? 1 : 0)), 0);
+  const sheets = S().duplex ? pages / 2 : pages;
+  $("stats").innerHTML =
+    `<div class="stat"><b>${copies}</b><span>part copies</span></div>
+     <div class="stat"><b>${pages}</b><span>pages in the PDF</span></div>
+     <div class="stat"><b>${Math.ceil(sheets)}</b><span>sheets of paper${S().duplex ? " (double-sided)" : ""}</span></div>`;
+  $("buildBtn").disabled = pages === 0;
+  const n = $("outName");
+  if (n.dataset.auto !== "0") n.value = state.fileName.replace(/\.pdf$/i, "") + " - " + saved.current + " - PRINT.pdf";
+}
+$("outName").addEventListener("input", e => { e.target.dataset.auto = "0"; });
+
+$("partRows").addEventListener("change", e => {
+  const tr = e.target.closest("tr"); if (!tr) return;
+  const st = state.starts.get(+tr.dataset.start); if (!st) return;
+  const f = e.target.dataset.field;
+  if (f === "label"){ st.label = e.target.value.trim() || st.label; const fam = classify(st.label); if (fam && !st.famManual) st.fam = fam; }
+  if (f === "fam"){ st.fam = e.target.value; st.famManual = true; }
+  if (f === "copies"){ const v = parseInt(e.target.value, 10); st.override = isNaN(v) ? null : Math.max(0, v); }
+  refresh();
+});
+$("partRows").addEventListener("click", e => {
+  const p = +e.target.dataset.reset; if (!p) return;
+  const st = state.starts.get(p); if (st) { st.override = null; refresh(); }
+});
+$("missing").addEventListener("change", e => {
+  const id = e.target.dataset.fallback; if (!id) return;
+  S().fallbacks[id] = e.target.value; persist(); refresh();
+});
+$("resetOverrides").addEventListener("click", () => { state.starts.forEach(s => s.override = null); refresh(); });
+
+/* ---------------------------------------------------------------- build the print PDF */
+$("buildBtn").addEventListener("click", async () => {
+  const btn = $("buildBtn"), status = $("buildStatus");
+  btn.disabled = true; status.textContent = "Building…";
+  try {
+    const { PDFDocument, PDFName, PDFPage } = PDFLib;
+    let src;
+    try { src = await PDFDocument.load(state.bytes); }
+    catch (err) {
+      if (/encrypt/i.test(err.message)) { status.textContent = "This PDF is locked by the publisher, so its pages can't be copied into a new file. Print it from the publisher's own viewer instead."; return; }
+      throw err;
+    }
+    const out = await PDFDocument.create();
+    let index = 0;
+    const insertRef = (ref, node) => { const parent = out.catalog.insertLeafNode(ref, index++); node.setParent(parent); };
+    const { rows } = plan();
+    for (const r of rows){
+      if (r.copies <= 0) continue;
+      const idxs = []; for (let p = r.start; p <= r.end; p++) idxs.push(p - 1);
+      const copied = await out.copyPages(src, idxs);
+      for (let c = 0; c < r.copies; c++){
+        for (const pg of copied){
+          if (c === 0) insertRef(pg.ref, pg.node);
+          else {
+            const leaf = pg.node.clone(out.context);
+            leaf.delete(PDFName.of("Annots"));
+            insertRef(out.context.register(leaf), leaf);
+          }
+        }
+        if (S().duplex && r.pages % 2){
+          const last = copied[copied.length - 1], { width, height } = last.getSize();
+          const blank = PDFPage.create(out); blank.setSize(width, height);
+          insertRef(blank.ref, blank.node);
+        }
+      }
+    }
+    const bytes = await out.save();
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    let name = $("outName").value.trim() || "print.pdf"; if (!/\.pdf$/i.test(name)) name += ".pdf";
+    a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    status.textContent = `Done — ${index} pages. Send the file to the copier as one job, single copy.`;
+  } catch (err) {
+    status.textContent = "Something went wrong building the PDF: " + (err && err.message || err);
+  } finally { btn.disabled = false; }
+});
+
+/* ---------------------------------------------------------------- start */
+renderEnsemble(); renderSettings();
+(() => { let first = true; try { first = !localStorage.getItem(STORE); } catch (e) {} if (first) $("settingsBox").open = true; })();
+</script>
+</body>
+</html>
