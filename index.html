@@ -254,6 +254,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
 
   <section class="card" id="s3" hidden>
     <h2><span class="n">3</span>Check the parts</h2>
+    <div class="notice info" id="ocrStatus" hidden></div>
     <div id="scanNotice"></div>
     <ul class="missing" id="missing"></ul>
     <div class="table-wrap">
@@ -960,6 +961,7 @@ async function openFile(file, opts = {}){
       }
     }
     state.knownParts = !!(opts.segs && opts.segs.length);
+    state.ocrDone = false; state.userTouched = false; ocrRun++; $("ocrStatus").hidden = true;
     $("outName").value = file.name.replace(/\.pdf$/i, "") + " - " + saved.current + " - PRINT.pdf";
     $("loadStatus").textContent = `${file.name} — ${state.numPages} page${state.numPages === 1 ? "" : "s"}`;
     $("s3").hidden = $("s4").hidden = false;
@@ -969,6 +971,7 @@ async function openFile(file, opts = {}){
     if (!opts.cleaned){ $("cleanBox").open = state.scanned; $("clPreviewBox").hidden = true; $("cleanStatus").textContent = ""; $("cleanActions").hidden = true; }
     $("clPreviewPage").max = state.numPages;
     refresh();
+    readPageImages();
     $("s3").scrollIntoView({ block: "start" });
   } catch (err) {
     setProgress(null);
@@ -1242,6 +1245,78 @@ $("clUndo").addEventListener("click", async () => {
   $("cleanBox").open = true; $("cleanStatus").textContent = "Back to the original scan.";
 });
 
+/* ---------------------------------------------------------------- reading part names from page images (OCR) */
+let ocrWorker = null, ocrLoading = null, ocrRun = 0;
+function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("couldn't load " + src)); document.head.appendChild(s); }); }
+async function getOcr(){
+  if (ocrWorker) return ocrWorker;
+  if (!ocrLoading) ocrLoading = (async () => {
+    if (!window.Tesseract) await loadScript("lib/ocr/tesseract.min.js");
+    const base = new URL("lib/ocr/", location.href).href;
+    const w = await Tesseract.createWorker("eng", 1, { workerPath: base + "worker.min.js", corePath: base, langPath: base + "lang", gzip: true, workerBlobURL: false });
+    await w.setParameters({ tessedit_pageseg_mode: "11" });
+    ocrWorker = w; return w;
+  })().catch(err => { ocrLoading = null; throw err; });
+  return ocrLoading;
+}
+async function ocrHeader(pageNum){
+  const page = await state.pdf.getPage(pageNum);
+  const vp1 = page.getViewport({ scale: 1 }), scale = Math.min(3, 1800 / vp1.width), vp = page.getViewport({ scale });
+  const c = newCanvas(vp.width, vp.height * 0.22), x = ctx2d(c);
+  x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: x, viewport: vp }).promise;
+  const { data } = await (await getOcr()).recognize(c);
+  let lines = (data.lines || []).filter(l => l.text && l.text.trim()).sort((a, b) => (a.bbox.y0 - b.bbox.y0) || (a.bbox.x0 - b.bbox.x0)).map(l => l.text);
+  if (!lines.length) lines = (data.text || "").split("\n");
+  return lines.map(s => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+}
+const titleKey = l => norm(fixOcr(l)).replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+function flaggedStarts(){ return [...state.starts.entries()].filter(([, s]) => s.unknown || s.guessed || s.inferred || s.fam === "Other").map(([p]) => p); }
+async function readPageImages(){
+  const all = state.scanned && !state.knownParts;
+  const pages = all ? Array.from({ length: state.numPages }, (_, i) => i + 1) : flaggedStarts().filter(p => !(state.pageInfo[p-1] || {}).ocr);
+  if (!pages.length) return;
+  const run = ++ocrRun, box = $("ocrStatus");
+  box.hidden = false; box.className = "notice info";
+  try {
+    box.textContent = "Loading the text reader (first time only)…";
+    await getOcr();
+    const found = {};
+    for (let k = 0; k < pages.length; k++){
+      if (run !== ocrRun) return;
+      box.textContent = `Reading part names from the page images… page ${pages[k]} (${k + 1} of ${pages.length})`;
+      const lines = await ocrHeader(pages[k]);
+      if (run !== ocrRun) return;
+      const res = labelFromLines(lines), pi = state.pageInfo[pages[k] - 1];
+      pi.ocr = true;
+      if (all){ pi.titleLines = lines.slice(0, 2).map(titleKey); pi.fam = res ? res.fam : undefined; pi.label = res ? res.label : undefined; }
+      if (res && res.fam !== "Score") found[pages[k]] = res;
+    }
+    let applied = 0;
+    if (all && !state.userTouched){
+      state.ocrDone = true; detectStarts(); buildPageMap();
+      applied = [...state.starts.values()].filter(s => INSTR_IDS.includes(s.fam) && !s.guessed).length;
+    } else {
+      for (const [p, s] of state.starts){
+        const r = found[p];
+        if (!r || !(s.unknown || s.guessed || s.inferred || s.fam === "Other")) continue;
+        s.label = r.label; s.fam = r.fam; s.guessed = s.unknown = s.inferred = false; s.fromImage = true; applied++;
+      }
+      inferNames();
+      state.ocrDone = true;
+    }
+    refresh();
+    box.className = "notice ok";
+    box.textContent = all ? `Read the page images — found ${applied} part${applied === 1 ? "" : "s"} by name.` :
+      applied ? `Re-read ${applied} unclear part name${applied === 1 ? "" : "s"} from the page images.` : "Re-checked the unclear part names on the page images — no better reading found.";
+    setTimeout(() => { if (run === ocrRun) box.hidden = true; }, 8000);
+  } catch (err) {
+    if (run !== ocrRun) return;
+    box.className = "notice warn";
+    box.textContent = "Couldn't read the page images (" + (err && err.message || err) + "). Mark parts by hand in the page map.";
+  }
+}
+
 /* ---------------------------------------------------------------- UI: page map */
 let observer = null;
 function buildPageMap(){
@@ -1266,6 +1341,7 @@ async function renderThumb(el){
 }
 $("pages").addEventListener("change", e => {
   const p = +e.target.dataset.start; if (!p) return;
+  state.userTouched = true;
   if (e.target.checked){
     const pi = state.pageInfo[p-1] || {};
     state.starts.set(p, { label: pi.label || ("Part starting p. " + p), fam: pi.fam || "Other", override: null });
@@ -1324,7 +1400,7 @@ function refresh(){
   if (long.length) extra += `<p class="notice warn">${long.map(r => `${esc(r.label)} (${r.pages} pages)`).join(", ")} ${long.length === 1 ? "is" : "are"} much longer than the other parts and may include another part. Check the page map.</p>`;
   if (state.knownParts && !unknown) notice = `<p class="notice ok">${state.merge ? `Merged ${state.merge.items.length} files —` : ""} one part per file. Check the instruments and copy counts below.</p>`;
   else if (state.knownParts) notice = `<p class="notice warn">${unknown} file${unknown === 1 ? "" : "s"} didn't say which instrument in the file name. Pick the instrument for ${unknown === 1 ? "it" : "each"} below.</p>`;
-  else if (state.scanned) notice = `<p class="notice warn">This PDF has no readable text (it's probably a scan), so parts couldn't be found automatically. Open the page map below, check “start” on the first page of each part, then name each part and pick its instrument.</p>`;
+  else if (state.scanned && !state.ocrDone) notice = `<p class="notice warn">This PDF is a scan with no readable text. The part names are being read from the page images — or open the page map below, check “start” on the first page of each part, and name each part yourself.</p>`;
   else if (unknown) notice = `<p class="notice warn">${unknown} section${unknown === 1 ? "" : "s"} couldn't be matched to an instrument. Pick one, or leave it as “Not a part” to skip it.</p>`;
   else notice = `<p class="notice ok">Found ${rows.filter(r => INSTR_IDS.includes(r.fam)).length} parts. Spot-check the page ranges — open the page map if anything looks merged or split wrong.</p>`;
   $("scanNotice").innerHTML = notice + extra;
@@ -1359,7 +1435,7 @@ $("partRows").addEventListener("change", e => {
   const tr = e.target.closest("tr"); if (!tr) return;
   const st = state.starts.get(+tr.dataset.start); if (!st) return;
   const f = e.target.dataset.field;
-  st.guessed = st.inferred = st.unknown = false;
+  st.guessed = st.inferred = st.unknown = false; state.userTouched = true;
   if (f === "label"){ st.label = e.target.value.trim() || st.label; const fam = classify(st.label); if (fam && !st.famManual) st.fam = fam; }
   if (f === "fam"){ st.fam = e.target.value; st.famManual = true; }
   if (f === "copies"){ const v = parseInt(e.target.value, 10); st.override = isNaN(v) ? null : Math.max(0, v); }

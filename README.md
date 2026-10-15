@@ -9,7 +9,10 @@ files are uploaded, nothing to install.
 1. **Your ensemble** — enter how many students play each instrument. Save one
    ensemble per class (New ensemble). Numbers are remembered in your browser.
 2. **Full set PDF** — drop in the PDF. Parts are found automatically when the PDF
-   has readable text; for scanned PDFs, use the page map to mark where each part starts.
+   has readable text. For scans, the tool reads the part names straight from the page
+   images (this takes about a second per page; the reader loads once, ~7 MB, then is
+   cached). It also re-reads any part name the copier's own text recognition garbled.
+   Anything it still can't read is highlighted — fix it in the page map.
    **Separate part files?** Drop them all at once. Each file becomes one part, named from
    its file name (e.g. "Trumpet 1.pdf"; a shared prefix like "Piece Title - " is ignored),
    and they're sorted into score order — or by number if every file name starts with one.
@@ -72,5 +75,7 @@ fine) — or upload a CSV. Then:
 
 ## Credits
 
-Uses [PDF.js](https://mozilla.github.io/pdf.js/) (Apache-2.0) to read PDFs and
-[pdf-lib](https://pdf-lib.js.org/) (MIT) to build the print file; both are bundled in `lib/`.
+Uses [PDF.js](https://mozilla.github.io/pdf.js/) (Apache-2.0) to read PDFs,
+[pdf-lib](https://pdf-lib.js.org/) (MIT) to build the print file, and
+[Tesseract.js](https://tesseract.projectnaptha.com/) (Apache-2.0) to read part names from
+scanned pages; all are bundled in `lib/` (Tesseract in `lib/ocr/`).
