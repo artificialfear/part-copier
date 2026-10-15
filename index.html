@@ -73,6 +73,13 @@ input[type=number]{width:64px;text-align:center}
 .clean-preview figcaption{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
 .clean-preview canvas{width:100%;display:block;background:#fff;border:1px solid var(--line)}
 input[type=range]{accent-color:var(--accent)}
+.merge-list{margin:8px 0 0;padding:0;list-style:none;max-width:720px}
+.merge-list li{display:flex;align-items:center;gap:10px;padding:6px 8px 6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--field);margin-top:5px}
+.merge-list .mi-num{color:var(--muted);font-size:12.5px;width:22px;text-align:right;flex:none}
+.merge-list .mi-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.merge-list .mi-meta{color:var(--muted);font-size:12.5px;flex:none}
+.merge-list .mi-meta.unk{color:var(--warn)}
+.merge-list button{padding:3px 9px;font-size:13px}
 .sec{margin-top:14px}
 .sec-title{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:8px}
@@ -198,12 +205,19 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
   <section class="card" id="s2">
     <h2><span class="n">2</span>Full set PDF</h2>
     <label class="drop" id="drop">
-      <strong>Drop the full-set PDF here</strong>
-      <span class="note">or click to choose a file — one PDF that contains every part for one piece</span>
-      <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      <strong>Drop the full-set PDF here — or several part PDFs at once</strong>
+      <span class="note">or click to choose files — one PDF with every part, or one PDF per part (named like “Trumpet 1.pdf”)</span>
+      <input type="file" id="file" accept="application/pdf,.pdf" multiple hidden>
     </label>
     <div class="status" id="loadStatus"></div>
     <div class="progress" id="progress" hidden><div></div></div>
+
+    <details class="settings" id="mergeBox" hidden>
+      <summary id="mergeSummary">Merged files</summary>
+      <p class="hint" style="margin-top:8px">Each file is one part, sorted into score order. Use the arrows if anything is out of place, or remove a file you don't need.</p>
+      <ol class="merge-list" id="mergeList"></ol>
+      <div class="row" style="margin-top:8px"><button type="button" id="mergeDownload">Download merged full set</button></div>
+    </details>
 
     <details class="settings" id="cleanBox" hidden>
       <summary>Clean up a scanned set</summary>
@@ -736,13 +750,108 @@ $("settingsBox").addEventListener("input", () => {
 const drop = $("drop");
 ["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
 ["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
-drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) openFile(f); });
-$("file").addEventListener("change", e => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ""; });
+drop.addEventListener("drop", e => { openFiles([...e.dataTransfer.files]); });
+$("file").addEventListener("change", e => { openFiles([...e.target.files]); e.target.value = ""; });
+
+/* ---------------------------------------------------------------- several part files -> one set */
+function labelFromFileName(name){
+  return name.replace(/\.pdf$/i, "").replace(/[_]+/g, " ").replace(/^\s*\d+\s*[-–.)]?\s+(?=\D)/, "")
+             .replace(/([a-z\u266d])(\d)/gi, "$1 $2").replace(/\s+/g, " ").trim();
+}
+async function openFiles(files){
+  files = files.filter(f => /\.pdf$/i.test(f.name) || f.type === "application/pdf");
+  if (!files.length){ $("loadStatus").textContent = "Those aren't PDFs."; return; }
+  if (files.length === 1){ state.merge = null; $("mergeBox").hidden = true; return openFile(files[0]); }
+  $("loadStatus").textContent = `Reading ${files.length} files…`;
+  const items = [], problems = [];
+  for (const f of files){
+    try {
+      const bytes = await f.arrayBuffer();
+      const doc = await PDFLib.PDFDocument.load(bytes);
+      const label = labelFromFileName(f.name);
+      const fam = classify(label) || normInst(label) || null;
+      items.push({ name: f.name, bytes, pages: doc.getPageCount(), label, fam, lead: (f.name.match(/^\s*(\d+)/) || [])[1] });
+    } catch (err) {
+      problems.push(/encrypt/i.test(err.message) ? `${f.name} is locked by the publisher` : `${f.name} couldn't be read`);
+    }
+  }
+  if (!items.length){ $("loadStatus").textContent = problems.join("; "); return; }
+  // strip a prefix most files share, such as "Ravenwood Overture - "
+  const pre = sharedLead(items.map(i => i.label));
+  if (pre) for (const it of items) if (it.label.startsWith(pre) && it.label.length > pre.length + 1){
+    it.label = it.label.slice(pre.length).replace(/^[\s\-–]+/, ""); it.fam = classify(it.label) || normInst(it.label) || it.fam;
+  }
+  state.merge = { items, problems, numbered: items.every(i => i.lead !== undefined), userOrdered: false };
+  $("mergeBox").open = true;
+  sortMerge();
+  await rebuildMerge();
+  // files whose names didn't say the instrument: use the part name found on their first page, then re-sort once
+  let learned = false;
+  state.merge.segs.forEach((s, i) => {
+    const it = state.merge.items[i], st = state.starts.get(s.start);
+    if (!it.fam && st && st.fam && st.fam !== "Other"){ it.fam = st.fam; it.label = st.label; learned = true; }
+  });
+  if (learned && !state.merge.numbered){ sortMerge(); await rebuildMerge(); }
+}
+function sortMerge(){
+  const m = state.merge, rank = i => i.fam === "Score" ? -1 : i.fam ? INSTR_IDS.indexOf(i.fam) : 999;
+  m.items.sort((a, b) => m.numbered ? (+a.lead - +b.lead) :
+    (rank(a) - rank(b) || ((partNums(a.label)[0] || 0) - (partNums(b.label)[0] || 0)) || a.label.localeCompare(b.label, undefined, { numeric: true })));
+}
+async function rebuildMerge(){
+  const m = state.merge, out = await PDFLib.PDFDocument.create(), segs = [];
+  for (const it of m.items){
+    const src = await PDFLib.PDFDocument.load(it.bytes);
+    const pages = await out.copyPages(src, src.getPageIndices());
+    segs.push({ start: out.getPageCount() + 1, label: it.label, fam: it.fam });
+    pages.forEach(pg => out.addPage(pg));
+  }
+  const bytes = await out.save();
+  m.bytes = bytes; m.segs = segs;
+  renderMerge();
+  await openFile(new File([bytes], mergedName() + ".pdf", { type: "application/pdf" }), { segs });
+  if (m.problems.length) $("loadStatus").textContent += ` · skipped: ${m.problems.join("; ")}`;
+}
+function sharedLead(labels){
+  const tally = {};
+  for (const l of labels){ const m = l.match(/^(.{3,}?)\s+[-–]\s+/); if (m) tally[m[0]] = (tally[m[0]] || 0) + 1; }
+  let best = "", n = 0; for (const [k, v] of Object.entries(tally)) if (v > n){ best = k; n = v; }
+  return n >= 2 && n >= labels.length * 0.6 ? best : "";
+}
+function mergedName(){
+  const lead = sharedLead(state.merge.items.map(i => labelFromFileName(i.name)));
+  return lead ? lead.replace(/[\s\-–]+$/, "") : "Full set";
+}
+function renderMerge(){
+  const m = state.merge;
+  $("mergeBox").hidden = !m; if (!m) return;
+  $("mergeSummary").textContent = `Merged ${m.items.length} files`;
+  $("mergeList").innerHTML = m.items.map((it, i) => `<li>
+    <span class="mi-num">${i + 1}</span>
+    <span class="mi-name" title="${esc(it.name)}">${esc(it.name)}</span>
+    <span class="mi-meta ${it.fam ? "" : "unk"}">${it.fam ? esc(LABEL[it.fam] || it.fam) : "instrument?"} · ${it.pages} pg</span>
+    <button type="button" data-mv="-1" data-i="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move up">↑</button>
+    <button type="button" data-mv="1" data-i="${i}" ${i === m.items.length - 1 ? "disabled" : ""} aria-label="Move down">↓</button>
+    <button type="button" data-rm="${i}" aria-label="Remove">×</button></li>`).join("");
+}
+$("mergeList").addEventListener("click", async e => {
+  const b = e.target.closest("button"); if (!b || !state.merge) return;
+  const items = state.merge.items;
+  if (b.dataset.mv){ const i = +b.dataset.i, j = i + +b.dataset.mv; [items[i], items[j]] = [items[j], items[i]]; }
+  if (b.dataset.rm){ items.splice(+b.dataset.rm, 1); if (!items.length){ state.merge = null; $("mergeBox").hidden = true; return; } }
+  await rebuildMerge();
+});
+$("mergeDownload").addEventListener("click", () => {
+  if (!state.merge) return;
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([state.merge.bytes], { type: "application/pdf" }));
+  a.download = mergedName() + " - full set.pdf"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+});
 
 function setProgress(frac){ const p = $("progress"); p.hidden = frac == null; if (frac != null) p.firstElementChild.style.width = Math.round(frac*100) + "%"; }
 
 async function openFile(file, opts = {}){
   if (!opts.cleaned){ state.original = null; state.originalPdf = null; state.cleanInfo = null; }
+  if (!opts.cleaned && !opts.segs && state.merge && !opts.keepMerge){ state.merge = null; $("mergeBox").hidden = true; }
   if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf"){ $("loadStatus").textContent = "That isn't a PDF."; return; }
   $("loadStatus").textContent = `Reading ${file.name}…`;
   $("s3").hidden = $("s4").hidden = true;
@@ -770,6 +879,15 @@ async function openFile(file, opts = {}){
     setProgress(null);
     state.scanned = withText === 0;
     detectStarts();
+    if (opts.segs && opts.segs.length){
+      state.starts = new Map();
+      for (const s of opts.segs){
+        const pi = state.pageInfo[s.start - 1] || {};
+        const fam = s.fam || pi.fam || "Other";
+        state.starts.set(s.start, { label: s.fam ? s.label : (pi.label || s.label), fam, famManual: !!s.fam, override: null });
+      }
+    }
+    state.knownParts = !!(opts.segs && opts.segs.length);
     $("outName").value = file.name.replace(/\.pdf$/i, "") + " - " + saved.current + " - PRINT.pdf";
     $("loadStatus").textContent = `${file.name} — ${state.numPages} page${state.numPages === 1 ? "" : "s"}`;
     $("s3").hidden = $("s4").hidden = false;
@@ -956,7 +1074,7 @@ $("clPreview").addEventListener("click", async () => {
 $("clRun").addEventListener("click", async () => {
   const btn = $("clRun"); btn.disabled = true;
   try {
-    if (!state.original) state.original = { bytes: state.bytes, name: state.fileName };
+    if (!state.original) state.original = { bytes: state.bytes, name: state.fileName, segs: state.knownParts ? [...state.starts.entries()].map(([start, s]) => ({ start, label: s.label, fam: s.famManual || s.fam !== "Other" ? s.fam : null })) : null };
     const doc = await sourcePdf(), opt = cleanOpts(), out = await PDFLib.PDFDocument.create();
     const removed = []; let straightened = 0;
     for (let i = 1; i <= doc.numPages; i++){
@@ -974,7 +1092,17 @@ $("clRun").addEventListener("click", async () => {
     const bytes = await out.save();
     const name = state.original.name.replace(/\.pdf$/i, "") + " (cleaned).pdf";
     state.cleanInfo = { bytes, name, removed, straightened, total: doc.numPages };
-    await openFile(new File([bytes], state.original.name, { type: "application/pdf" }), { cleaned: true });
+    let segs = null;
+    if (state.original.segs){
+      const keptBefore = n => { let k = 0; for (let i = 1; i < n; i++) if (!removed.includes(i)) k++; return k; };
+      const orig = state.original.segs;
+      segs = orig.map((s, i) => {
+        const end = i + 1 < orig.length ? orig[i+1].start - 1 : doc.numPages;
+        let keep = 0; for (let pgn = s.start; pgn <= end; pgn++) if (!removed.includes(pgn)) keep++;
+        return keep ? Object.assign({}, s, { start: keptBefore(s.start) + 1 }) : null;
+      }).filter(Boolean);
+    }
+    await openFile(new File([bytes], state.original.name, { type: "application/pdf" }), { cleaned: true, segs });
     $("cleanStatus").textContent = `Cleaned ${doc.numPages - removed.length} page${doc.numPages - removed.length === 1 ? "" : "s"}` +
       (straightened ? ` · straightened ${straightened}` : "") +
       (removed.length ? ` · removed ${removed.length} blank (original p. ${removed.join(", ")})` : "") +
@@ -992,7 +1120,7 @@ $("clDownload").addEventListener("click", () => {
 $("clUndo").addEventListener("click", async () => {
   if (!state.original) return;
   const o = state.original; state.original = null; state.originalPdf = null; state.cleanInfo = null;
-  await openFile(new File([o.bytes], o.name, { type: "application/pdf" }));
+  await openFile(new File([o.bytes], o.name, { type: "application/pdf" }), { segs: o.segs, keepMerge: true });
   $("cleanBox").open = true; $("cleanStatus").textContent = "Back to the original scan.";
 });
 
@@ -1070,7 +1198,9 @@ function refresh(){
   // notice
   const unknown = rows.filter(r => r.flag).length;
   let notice = "";
-  if (state.scanned) notice = `<p class="notice warn">This PDF has no readable text (it's probably a scan), so parts couldn't be found automatically. Open the page map below, check “start” on the first page of each part, then name each part and pick its instrument.</p>`;
+  if (state.knownParts && !unknown) notice = `<p class="notice ok">${state.merge ? `Merged ${state.merge.items.length} files —` : ""} one part per file. Check the instruments and copy counts below.</p>`;
+  else if (state.knownParts) notice = `<p class="notice warn">${unknown} file${unknown === 1 ? "" : "s"} didn't say which instrument in the file name. Pick the instrument for ${unknown === 1 ? "it" : "each"} below.</p>`;
+  else if (state.scanned) notice = `<p class="notice warn">This PDF has no readable text (it's probably a scan), so parts couldn't be found automatically. Open the page map below, check “start” on the first page of each part, then name each part and pick its instrument.</p>`;
   else if (unknown) notice = `<p class="notice warn">${unknown} section${unknown === 1 ? "" : "s"} couldn't be matched to an instrument. Pick one, or leave it as “Not a part” to skip it.</p>`;
   else notice = `<p class="notice ok">Found ${rows.filter(r => INSTR_IDS.includes(r.fam)).length} parts. Spot-check the page ranges — open the page map if anything looks merged or split wrong.</p>`;
   $("scanNotice").innerHTML = notice;

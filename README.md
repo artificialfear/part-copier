@@ -10,6 +10,11 @@ files are uploaded, nothing to install.
    ensemble per class (New ensemble). Numbers are remembered in your browser.
 2. **Full set PDF** — drop in the PDF. Parts are found automatically when the PDF
    has readable text; for scanned PDFs, use the page map to mark where each part starts.
+   **Separate part files?** Drop them all at once. Each file becomes one part, named from
+   its file name (e.g. "Trumpet 1.pdf"; a shared prefix like "Piece Title - " is ignored),
+   and they're sorted into score order — or by number if every file name starts with one.
+   Reorder or remove files in the **Merged files** list, and use **Download merged full
+   set** to save one combined PDF.
 3. **Check the parts** — confirm page ranges and copies. Type over any copy count
    to set it by hand. If an instrument has no part in the set (e.g. bassoon),
    choose which part those players get.
