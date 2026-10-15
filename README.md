@@ -50,6 +50,14 @@ fine) — or upload a CSV. Then:
   Uncheck **Print names on parts** to use the roster for counts only.
 - Rosters are saved only in that browser. On shared computers, use **Forget roster**.
 
+### Moving your setup to another computer
+
+Everything is saved in the browser you set it up in. Open **Use this setup on another
+computer** → **Save** to download a setup file (ensembles, counts, rosters if checked,
+print rules, scan-cleanup settings). On the other computer, open the tool and **Load setup
+file**. Ensembles with the same name are replaced; others are kept. A file that includes
+rosters contains student names — keep it in your school account.
+
 ## Default print rules (change under "Print rules")
 
 - Split parts (1st/2nd/3rd): players divided evenly; an odd player goes to the 1st part.
