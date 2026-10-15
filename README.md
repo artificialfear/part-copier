@@ -15,6 +15,19 @@ files are uploaded, nothing to install.
    choose which part those players get.
 4. **Print** — download the PDF and send it to the copier as one job, single copy.
 
+### Optional: clean up a scanned set
+
+After loading a PDF made on a copier or phone, open **Clean up a scanned set**:
+straighten crooked pages, black & white or grayscale with a darkness control, remove
+dark scanner edges, drop blank pages, and fit 9×12 parts onto letter paper (empty
+margins are trimmed first so the music stays as large as possible). Preview any page,
+then **Clean up all pages**; the parts list switches to the cleaned pages, and
+**Download cleaned PDF** saves a copy for your library. Clean up before marking parts
+in the page map, since removing blank pages renumbers them.
+
+Best scan settings on a copier: document feeder, scan-to-email, 300 dpi, black & white,
+original size set to Auto/Mixed (or 11×17) so 9×12 pages aren't cut off.
+
 ### Optional: import a roster for named copies
 
 Under **Your ensemble**, click **Import roster** and paste three columns from any

@@ -68,6 +68,11 @@ input[type=number]{width:64px;text-align:center}
 .tiles.locked .stepper{border-color:transparent;background:transparent}
 .tiles.locked .stepper button{display:none}
 .tiles.locked .stepper input{border:none;background:transparent;color:var(--ink);opacity:1}
+.clean-preview{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;max-width:720px}
+.clean-preview figure{margin:0}
+.clean-preview figcaption{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.clean-preview canvas{width:100%;display:block;background:#fff;border:1px solid var(--line)}
+input[type=range]{accent-color:var(--accent)}
 .sec{margin-top:14px}
 .sec-title{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:8px}
@@ -199,6 +204,38 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
     </label>
     <div class="status" id="loadStatus"></div>
     <div class="progress" id="progress" hidden><div></div></div>
+
+    <details class="settings" id="cleanBox" hidden>
+      <summary>Clean up a scanned set</summary>
+      <p class="hint" style="margin-top:8px">For PDFs made on a copier or phone. Straightens crooked pages, turns grey paper white, removes scanner shadows and blank pages, and fits 9×12 parts onto letter paper. Clean up <b>before</b> marking parts in the page map — removing blank pages renumbers them.</p>
+      <div class="rules">
+        <label class="rule clickable"><div class="rule-text"><b>Straighten crooked pages</b><span>Lines up the staves with the page edge.</span></div><div class="rule-ctl"><input type="checkbox" id="clDeskew"></div></label>
+        <div class="rule"><div class="rule-text"><b>Color</b><span>Black &amp; white is crispest and makes the smallest files; grayscale keeps faint pencil marks.</span></div>
+          <div class="rule-ctl"><select id="clMode"><option value="bw">Black &amp; white</option><option value="gray">Grayscale</option></select></div></div>
+        <div class="rule"><div class="rule-text"><b>Darkness</b><span>Raise it if notes or staff lines come out broken; lower it if the paper looks speckled.</span></div>
+          <div class="rule-ctl"><input type="range" id="clDark" min="-40" max="40" step="5" style="width:140px"><span id="clDarkVal" class="note" style="width:28px;text-align:right"></span></div></div>
+        <label class="rule clickable"><div class="rule-text"><b>Remove dark scanner edges</b><span>Whites out black bands along the page edges.</span></div><div class="rule-ctl"><input type="checkbox" id="clEdges"></div></label>
+        <label class="rule clickable"><div class="rule-text"><b>Remove blank pages</b><span>Drops empty backs of single-sided parts scanned two-sided.</span></div><div class="rule-ctl"><input type="checkbox" id="clBlanks"></div></label>
+        <div class="rule"><div class="rule-text"><b>Page size</b><span>Fit to letter trims the empty margins, then scales the music to fill an 8.5×11 page so nothing gets cut off.</span></div>
+          <div class="rule-ctl"><select id="clFit"><option value="letter">Fit to letter (8.5×11)</option><option value="keep">Keep original size</option></select></div></div>
+        <div class="rule"><div class="rule-text"><b>Quality</b><span>300 dpi is sharpest; 200 dpi makes smaller files and works faster.</span></div>
+          <div class="rule-ctl"><select id="clDpi"><option value="300">300 dpi</option><option value="200">200 dpi</option></select></div></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <span class="note">Preview page</span><input type="number" id="clPreviewPage" min="1" value="1">
+        <button type="button" id="clPreview">Preview</button>
+        <button type="button" class="primary" id="clRun">Clean up all pages</button>
+      </div>
+      <div class="clean-preview" id="clPreviewBox" hidden>
+        <figure><figcaption>Before</figcaption><canvas id="clBefore"></canvas></figure>
+        <figure><figcaption>After</figcaption><canvas id="clAfter"></canvas></figure>
+      </div>
+      <div class="status" id="cleanStatus"></div>
+      <div class="row" id="cleanActions" hidden style="margin-top:8px">
+        <button type="button" id="clDownload">Download cleaned PDF</button>
+        <button type="button" id="clUndo">Use the original instead</button>
+      </div>
+    </details>
   </section>
 
   <section class="card" id="s3" hidden>
@@ -315,7 +352,8 @@ function labelFromLines(lines){
 /* ---------------------------------------------------------------- saved settings */
 const STORE = "partCopier.v1";
 const DEFAULT_SETTINGS = { oddTo:"first", percAll:true, spares:0, includeScore:false, scoreCopies:1, duplex:false,
-                           fallbacks:{ "Bassoon":"Trombone|low", "Trumpet":"Cornet|split", "Cornet":"Trumpet|split" } };
+                           fallbacks:{ "Bassoon":"Trombone|low", "Trumpet":"Cornet|split", "Cornet":"Trumpet|split" },
+                           clean:{ deskew:true, mode:"bw", darkness:0, edges:true, blanks:true, fit:"letter", dpi:300 } };
 function blankCounts(){ return Object.fromEntries(INSTR_IDS.map(id => [id, 0])); }
 let saved = load();
 function load(){
@@ -324,6 +362,7 @@ function load(){
     if (s && s.ensembles && Object.keys(s.ensembles).length) {
       s.settings = Object.assign({}, DEFAULT_SETTINGS, s.settings || {});
       s.settings.fallbacks = Object.assign({}, DEFAULT_SETTINGS.fallbacks, (s.settings||{}).fallbacks || {});
+      s.settings.clean = Object.assign({}, DEFAULT_SETTINGS.clean, (s.settings||{}).clean || {});
       for (const k in s.ensembles) s.ensembles[k] = Object.assign(blankCounts(), s.ensembles[k]);
       if (!s.ensembles[s.current]) s.current = Object.keys(s.ensembles)[0];
       s.rosters = s.rosters || {};
@@ -702,7 +741,8 @@ $("file").addEventListener("change", e => { const f = e.target.files[0]; if (f) 
 
 function setProgress(frac){ const p = $("progress"); p.hidden = frac == null; if (frac != null) p.firstElementChild.style.width = Math.round(frac*100) + "%"; }
 
-async function openFile(file){
+async function openFile(file, opts = {}){
+  if (!opts.cleaned){ state.original = null; state.originalPdf = null; state.cleanInfo = null; }
   if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf"){ $("loadStatus").textContent = "That isn't a PDF."; return; }
   $("loadStatus").textContent = `Reading ${file.name}…`;
   $("s3").hidden = $("s4").hidden = true;
@@ -735,6 +775,9 @@ async function openFile(file){
     $("s3").hidden = $("s4").hidden = false;
     buildPageMap();
     $("mapBox").open = state.scanned;
+    $("cleanBox").hidden = false;
+    if (!opts.cleaned){ $("cleanBox").open = state.scanned; $("clPreviewBox").hidden = true; $("cleanStatus").textContent = ""; $("cleanActions").hidden = true; }
+    $("clPreviewPage").max = state.numPages;
     refresh();
     $("s3").scrollIntoView({ block: "start" });
   } catch (err) {
@@ -757,6 +800,201 @@ function detectStarts(){
     }
   });
 }
+
+/* ---------------------------------------------------------------- scan cleanup */
+function newCanvas(w, h){ const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; }
+function ctx2d(c){ return c.getContext("2d", { willReadFrequently: true }); }
+function toGray(img){
+  const d = img.data, g = new Uint8ClampedArray(img.width * img.height);
+  for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (d[i]*299 + d[i+1]*587 + d[i+2]*114) / 1000;
+  return g;
+}
+function otsu(g){
+  const hist = new Array(256).fill(0); for (let i = 0; i < g.length; i++) hist[g[i]]++;
+  let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, best = 0, t = 160; const total = g.length;
+  for (let i = 0; i < 256; i++){
+    wB += hist[i]; if (!wB) continue; const wF = total - wB; if (!wF) break;
+    sumB += i * hist[i]; const mB = sumB / wB, mF = (sum - sumB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+    if (v > best){ best = v; t = i; }
+  }
+  return t;
+}
+function estimateSkew(src){
+  const W = 900, sc = W / src.width, H = Math.round(src.height * sc);
+  const c = newCanvas(W, H), x = ctx2d(c);
+  x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); x.drawImage(src, 0, 0, W, H);
+  const g = toGray(x.getImageData(0, 0, W, H)), t = otsu(g);
+  const xs = [], ys = [], mx = W * 0.06, my = H * 0.06;
+  for (let y = my | 0; y < H - my; y++) for (let xx = mx | 0; xx < W - mx; xx++) if (g[y*W + xx] < t){ xs.push(xx); ys.push(y); }
+  if (xs.length < 500) return 0;
+  const score = deg => {
+    const k = Math.tan(deg * Math.PI / 180), bins = new Float64Array(H * 2 + 50);
+    for (let i = 0; i < xs.length; i++){ const b = Math.round(ys[i] - xs[i] * k) + H; if (b >= 0 && b < bins.length) bins[b]++; }
+    let s = 0; for (let i = 0; i < bins.length; i++) s += bins[i] * bins[i]; return s;
+  };
+  let best = 0, bestS = -1;
+  for (let a = -4; a <= 4.0001; a += 0.2){ const s = score(a); if (s > bestS){ bestS = s; best = a; } }
+  const c0 = best; for (let a = c0 - 0.2; a <= c0 + 0.2001; a += 0.04){ const s = score(a); if (s > bestS){ bestS = s; best = a; } }
+  return Math.abs(best) < 0.08 ? 0 : best;
+}
+function rotateCanvas(src, deg){
+  const c = newCanvas(src.width, src.height), x = ctx2d(c);
+  x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+  x.translate(c.width / 2, c.height / 2); x.rotate(deg * Math.PI / 180); x.drawImage(src, -src.width / 2, -src.height / 2);
+  return c;
+}
+async function cleanPage(pdfPage, opt){
+  const vp0 = pdfPage.getViewport({ scale: 1 });
+  let scale = opt.dpi / 72;
+  const maxSide = 5200; if (Math.max(vp0.width, vp0.height) * scale > maxSide) scale = maxSide / Math.max(vp0.width, vp0.height);
+  const vp = pdfPage.getViewport({ scale });
+  let c = newCanvas(vp.width, vp.height); let x = ctx2d(c);
+  x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+  await pdfPage.render({ canvasContext: x, viewport: vp }).promise;
+  let angle = 0;
+  if (opt.deskew){ angle = estimateSkew(c); if (angle) { c = rotateCanvas(c, -angle); x = ctx2d(c); } }
+  const W = c.width, H = c.height, img = x.getImageData(0, 0, W, H), g = toGray(img);
+  const t = Math.max(30, Math.min(235, otsu(g) + opt.darkness));
+  const dark = new Uint8Array(W * H); for (let i = 0; i < g.length; i++) dark[i] = g[i] < t ? 1 : 0;
+  // whiten thick dark areas touching the page border (scanner shadows, wedges from crooked feeds, lid edges)
+  if (opt.edges){
+    const zone = Math.round(Math.min(W, H) * 0.08), minThick = Math.max(4, Math.round(Math.min(W, H) / 2550 * 7));
+    const seen = new Uint8Array(W * H), q = new Int32Array(W * H);
+    const inZone = i => { const y = (i / W) | 0, xx = i - y * W; return xx < zone || y < zone || xx >= W - zone || y >= H - zone; };
+    const flood = s => {
+      let head = 0, tail = 0, minx = W, maxx = 0, miny = H, maxy = 0;
+      q[tail++] = s; seen[s] = 1;
+      while (head < tail){
+        const i = q[head++], y = (i / W) | 0, xx = i - y * W;
+        if (xx < minx) minx = xx; if (xx > maxx) maxx = xx; if (y < miny) miny = y; if (y > maxy) maxy = y;
+        const nb = [xx > 0 ? i - 1 : -1, xx < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1];
+        for (const n of nb) if (n >= 0 && !seen[n] && dark[n] && inZone(n)){ seen[n] = 1; q[tail++] = n; }
+      }
+      const long = Math.max(maxx - minx + 1, maxy - miny + 1);
+      if (tail > 50 && tail / long >= minThick) for (let k = 0; k < tail; k++) dark[q[k]] = 0;
+    };
+    for (let xx = 0; xx < W; xx++){ for (const y of [0, H - 1]){ const i = y * W + xx; if (dark[i] && !seen[i]) flood(i); } }
+    for (let y = 0; y < H; y++){ for (const xx of [0, W - 1]){ const i = y * W + xx; if (dark[i] && !seen[i]) flood(i); } }
+    // clear specks in the outermost 1% (staples, punch holes, edge dust)
+    const e = Math.round(Math.min(W, H) * 0.01);
+    for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) if (y < e || y >= H - e || xx < e || xx >= W - e) dark[y*W + xx] = 0;
+  }
+  // content box (ignore specks) + blank test
+  const rows = new Uint32Array(H), cols = new Uint32Array(W); let inked = 0;
+  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) if (dark[y*W + xx]){ rows[y]++; cols[xx]++; inked++; }
+  const rowMin = Math.max(3, W * 0.003), colMin = Math.max(3, H * 0.003);
+  let top = 0, bot = H - 1, left = 0, right = W - 1;
+  while (top < H && rows[top] < rowMin) top++;
+  while (bot > top && rows[bot] < rowMin) bot--;
+  while (left < W && cols[left] < colMin) left++;
+  while (right > left && cols[right] < colMin) right--;
+  const blank = inked / (W * H) < 0.0012 || top >= bot || left >= right;
+  // write cleaned pixels
+  const d = img.data;
+  for (let i = 0, j = 0; j < g.length; i += 4, j++){
+    let v;
+    if (opt.mode === "bw") v = dark[j] ? 0 : 255;
+    else v = !dark[j] && g[j] >= t ? 255 : Math.max(0, Math.round(g[j] * g[j] / Math.max(t, 1)));
+    if (opt.mode !== "bw" && !dark[j] && g[j] < t) v = 255;
+    d[i] = d[i+1] = d[i+2] = v; d[i+3] = 255;
+  }
+  x.putImageData(img, 0, 0);
+  let out = c, ptsW = vp0.width, ptsH = vp0.height;
+  if (opt.fit === "letter" && !blank){
+    const pad = Math.round(opt.dpi * 0.08), landscape = (right - left) > (bot - top) * 1.15;
+    const cx = Math.max(0, left - pad), cy = Math.max(0, top - pad), cw = Math.min(W, right + pad) - cx, ch = Math.min(H, bot + pad) - cy;
+    ptsW = landscape ? 792 : 612; ptsH = landscape ? 612 : 792;
+    const OW = Math.round(ptsW / 72 * opt.dpi), OH = Math.round(ptsH / 72 * opt.dpi), m = Math.round(opt.dpi * 0.3);
+    const s = Math.min((OW - 2*m) / cw, (OH - 2*m) / ch, 1.15);
+    out = newCanvas(OW, OH); const ox = ctx2d(out);
+    ox.fillStyle = "#fff"; ox.fillRect(0, 0, OW, OH); ox.imageSmoothingQuality = "high";
+    ox.drawImage(c, cx, cy, cw, ch, Math.round((OW - cw*s) / 2), m, Math.round(cw*s), Math.round(ch*s));
+    if (opt.mode === "bw"){
+      const im = ox.getImageData(0, 0, OW, OH), dd = im.data;
+      for (let i = 0; i < dd.length; i += 4){ const v = dd[i] < 150 ? 0 : 255; dd[i] = dd[i+1] = dd[i+2] = v; }
+      ox.putImageData(im, 0, 0);
+    }
+  }
+  return { canvas: out, blank, angle, ptsW, ptsH };
+}
+const canvasBytes = (c, type, q) => new Promise(res => c.toBlob(b => b.arrayBuffer().then(res), type, q));
+function cleanOpts(){ const o = Object.assign({}, S().clean); o.dpi = +o.dpi; o.darkness = +o.darkness; return o; }
+function renderCleanSettings(){
+  const o = S().clean;
+  $("clDeskew").checked = o.deskew; $("clMode").value = o.mode; $("clDark").value = o.darkness; $("clDarkVal").textContent = (o.darkness > 0 ? "+" : "") + o.darkness;
+  $("clEdges").checked = o.edges; $("clBlanks").checked = o.blanks; $("clFit").value = o.fit; $("clDpi").value = String(o.dpi);
+}
+$("cleanBox").addEventListener("input", e => {
+  if (!e.target.id || !e.target.id.startsWith("cl") || e.target.id === "clPreviewPage") return;
+  const o = S().clean;
+  o.deskew = $("clDeskew").checked; o.mode = $("clMode").value; o.darkness = +$("clDark").value;
+  o.edges = $("clEdges").checked; o.blanks = $("clBlanks").checked; o.fit = $("clFit").value; o.dpi = +$("clDpi").value;
+  $("clDarkVal").textContent = (o.darkness > 0 ? "+" : "") + o.darkness;
+  persist();
+});
+async function sourcePdf(){
+  if (!state.original) return state.pdf;
+  if (!state.originalPdf) state.originalPdf = await pdfjsLib.getDocument({ data: new Uint8Array(state.original.bytes.slice(0)) }).promise;
+  return state.originalPdf;
+}
+$("clPreview").addEventListener("click", async () => {
+  const doc = await sourcePdf(), n = Math.min(doc.numPages, Math.max(1, parseInt($("clPreviewPage").value, 10) || 1));
+  $("cleanStatus").textContent = `Previewing page ${n}…`;
+  try {
+    const page = await doc.getPage(n), vp = page.getViewport({ scale: 400 / page.getViewport({ scale: 1 }).width });
+    const b = $("clBefore"); b.width = vp.width; b.height = vp.height;
+    const bx = b.getContext("2d"); bx.fillStyle = "#fff"; bx.fillRect(0, 0, b.width, b.height);
+    await page.render({ canvasContext: bx, viewport: vp }).promise;
+    const r = await cleanPage(page, cleanOpts()), a = $("clAfter");
+    a.width = 400; a.height = Math.round(400 * r.canvas.height / r.canvas.width);
+    const ax = a.getContext("2d"); ax.imageSmoothingQuality = "high"; ax.drawImage(r.canvas, 0, 0, a.width, a.height);
+    $("clPreviewBox").hidden = false;
+    $("cleanStatus").textContent = r.blank ? `Page ${n} looks blank — it would be removed.` : `Page ${n}${r.angle ? ` straightened by ${Math.abs(r.angle).toFixed(1)}°` : " didn't need straightening"}.`;
+  } catch (err) { $("cleanStatus").textContent = "Preview failed: " + (err && err.message || err); }
+});
+$("clRun").addEventListener("click", async () => {
+  const btn = $("clRun"); btn.disabled = true;
+  try {
+    if (!state.original) state.original = { bytes: state.bytes, name: state.fileName };
+    const doc = await sourcePdf(), opt = cleanOpts(), out = await PDFLib.PDFDocument.create();
+    const removed = []; let straightened = 0;
+    for (let i = 1; i <= doc.numPages; i++){
+      $("cleanStatus").textContent = `Cleaning page ${i} of ${doc.numPages}…`; setProgress(i / doc.numPages);
+      const page = await doc.getPage(i), r = await cleanPage(page, opt);
+      if (r.blank && opt.blanks){ removed.push(i); page.cleanup(); continue; }
+      if (r.angle) straightened++;
+      const bytes = opt.mode === "bw" ? await canvasBytes(r.canvas, "image/png") : await canvasBytes(r.canvas, "image/jpeg", 0.85);
+      const img = opt.mode === "bw" ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+      const pg = out.addPage([r.ptsW, r.ptsH]); pg.drawImage(img, { x: 0, y: 0, width: r.ptsW, height: r.ptsH });
+      r.canvas.width = r.canvas.height = 1; page.cleanup();
+    }
+    setProgress(null);
+    if (!out.getPageCount()){ $("cleanStatus").textContent = "Every page looked blank — try raising Darkness."; return; }
+    const bytes = await out.save();
+    const name = state.original.name.replace(/\.pdf$/i, "") + " (cleaned).pdf";
+    state.cleanInfo = { bytes, name, removed, straightened, total: doc.numPages };
+    await openFile(new File([bytes], state.original.name, { type: "application/pdf" }), { cleaned: true });
+    $("cleanStatus").textContent = `Cleaned ${doc.numPages - removed.length} page${doc.numPages - removed.length === 1 ? "" : "s"}` +
+      (straightened ? ` · straightened ${straightened}` : "") +
+      (removed.length ? ` · removed ${removed.length} blank (original p. ${removed.join(", ")})` : "") +
+      ". The parts below now use the cleaned pages.";
+    $("cleanActions").hidden = false;
+  } catch (err) {
+    setProgress(null); $("cleanStatus").textContent = "Cleanup failed: " + (err && err.message || err);
+  } finally { btn.disabled = false; }
+});
+$("clDownload").addEventListener("click", () => {
+  if (!state.cleanInfo) return;
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([state.cleanInfo.bytes], { type: "application/pdf" }));
+  a.download = state.cleanInfo.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+});
+$("clUndo").addEventListener("click", async () => {
+  if (!state.original) return;
+  const o = state.original; state.original = null; state.originalPdf = null; state.cleanInfo = null;
+  await openFile(new File([o.bytes], o.name, { type: "application/pdf" }));
+  $("cleanBox").open = true; $("cleanStatus").textContent = "Back to the original scan.";
+});
 
 /* ---------------------------------------------------------------- UI: page map */
 let observer = null;
@@ -984,7 +1222,7 @@ $("themeToggle").addEventListener("click", () => {
 paintThemeToggle();
 
 /* ---------------------------------------------------------------- start */
-renderEnsemble(); renderSettings();
+renderEnsemble(); renderSettings(); renderCleanSettings();
 (() => { let first = true; try { first = !localStorage.getItem(STORE); } catch (e) {} if (first) $("settingsBox").open = true; })();
 </script>
 </body>
