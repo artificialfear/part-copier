@@ -315,7 +315,7 @@ const RX = [
   [/\bpiccolo\b/, "Flute"], [/\bflutes?\b/, "Flute"],
   [/\boboes?\b/, "Oboe"], [/\bbassoons?\b/, "Bassoon"],
   [/\balto\s+clarinet/, "Alto Clarinet"], [/\b(bass|contra(alto|bass)?)\s+clarinet/, "Bass Clarinet"], [/\bclarinets?\b/, "Clarinet"],
-  [/\bbari(tone)?\s+sax/, "Bari Sax"], [/\btenor\s+sax/, "Tenor Sax"], [/\balto\s+sax/, "Alto Sax"], [/\bsaxophones?\b/, "Alto Sax"],
+  [/\bbari(tone)?\s+sax/, "Bari Sax"], [/\bbari\b/, "Bari Sax"], [/\btenor\s+sax/, "Tenor Sax"], [/\balto\s+sax/, "Alto Sax"], [/\bsaxophones?\b/, "Alto Sax"],
   [/\b(trumpets?|flugelhorns?)\b/, "Trumpet"], [/\bcornets?\b/, "Cornet"],
   [/\bhorns?\b/, "Horn"],
   [/\b(baritone|euphonium)\b[^\n]{0,14}(t\.?\s?c\.?|treble)/, "Euphonium TC"],
@@ -325,19 +325,90 @@ const RX = [
   [/\btimpani\b/, "Percussion"],
   [/\b(percussion|snare|bass drum|auxiliary|drum ?set|drums?)\b/, "Percussion"],
   [/\b(piano|keyboard)\b/, "Piano"],
-  [/\b(string bass|electric bass|bass guitar)\b/, "String Bass"]
+  [/\b(string ?bass|electric bass|bass guitar|upright bass|double bass)\b/, "String Bass"]
 ];
 const norm = t => t.toLowerCase().replace(/♭/g, "b");
 
+/* ---- OCR-tolerant reading of part names (copier OCR mangles letters) */
+const OCR_WORDS = ["flute","flutes","piccolo","oboe","bassoon","clarinet","clarinets","saxophone","saxophones","trumpet","trumpets",
+  "cornet","horn","horns","trombone","trombones","baritone","euphonium","tuba","percussion","timpani","mallet","mallets","bells",
+  "marimba","xylophone","vibraphone","glockenspiel","piano","string","alto","tenor","score","conductor","snare",
+  // real words that must never be "corrected" into an instrument name
+  "drumset","drums","cymbal","cymbals","shaker","bongos","congas","timbales","triangle","tambourine","woodblock","cowbell",
+  "arranged","composed","words","music","slowly","moderato","allegro","andante","maestoso","latin","swing","ballad","march",
+  "opt","optional","solo","soli","tutti","divisi","mute","muted","open"];
+function lev(a, b){
+  const m = a.length, n = b.length; let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++){
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+function fixWord(tok){
+  if (!/[a-z]/i.test(tok)) return tok;
+  let t = tok;
+  if (/\d/.test(t)) t = t.replace(/0/g, "o").replace(/1/g, "l").replace(/5/g, "s");
+  const w = t.toLowerCase().replace(/[^a-z]/g, "");
+  if (w.length >= 5 && !OCR_WORDS.includes(w)){
+    let best = null, bd = 9;
+    for (const k of OCR_WORDS){
+      if (Math.abs(k.length - w.length) > 2) continue;
+      const d = lev(w, k), lim = k.length >= 7 ? 2 : 1;
+      if (d <= lim && d < bd){ bd = d; best = k; }
+    }
+    if (best) return best;
+  }
+  return t;
+}
+function mergeFragments(line){
+  const toks = line.split(/\s+/);
+  for (let i = 0; i + 1 < toks.length; i++){
+    const a = toks[i].toLowerCase().replace(/[^a-z]/g, ""), b = toks[i+1].toLowerCase().replace(/[^a-z]/g, "");
+    if (!a || !b || OCR_WORDS.includes(a) || OCR_WORDS.includes(b)) continue;
+    const joined = fixWord(a + b);
+    if (OCR_WORDS.includes(joined)) toks.splice(i, 2, joined);
+  }
+  return toks.join(" ");
+}
+function fixOcr(text){
+  return String(text || "").replace(/♭/g, "b").split("\n").map(mergeFragments).map(line => line.split(/\s+/).map(tok => {
+    if (!tok) return tok;
+    const glued = tok.match(/^([A-Za-z]{4,})(\d)$/);                 // PERCUSSION2 -> percussion 2
+    if (glued) return fixWord(glued[1]) + " " + glued[2];
+    if (/^[1-4](?!st|nd|rd|th)[a-z]$/i.test(tok)) return tok[0];     // "1e" -> 1
+    return fixWord(tok);
+  }).join(" ")).join("\n");
+}
+const CANON = { "Flute":"Flute", "Oboe":"Oboe", "Bassoon":"Bassoon", "Clarinet":"Clarinet", "Alto Clarinet":"Alto Clarinet",
+  "Bass Clarinet":"Bass Clarinet", "Alto Sax":"Alto Sax", "Tenor Sax":"Tenor Sax", "Bari Sax":"Bari Sax", "Trumpet":"Trumpet",
+  "Cornet":"Cornet", "Horn":"Horn", "Trombone":"Trombone", "Euphonium BC":"Euphonium B.C.", "Euphonium TC":"Euphonium T.C.",
+  "Tuba":"Tuba", "Percussion":"Percussion", "Piano":"Piano", "String Bass":"String Bass", "Score":"Score" };
+function numText(nums){ return !nums.length ? "" : nums.length === 1 ? " " + nums[0] : nums.length === 2 ? ` ${nums[0]} & ${nums[1]}` : ` ${nums[0]}–${nums[nums.length-1]}`; }
+function canonLabel(fam, text){
+  const t = norm(fixOcr(text));
+  let base = CANON[fam] || fam;
+  if (fam === "Percussion"){
+    if (/\b(mallets?|bells|marimba|xylophone|vibraphone|glockenspiel|chimes)\b/.test(t)) base = "Mallet Percussion";
+    else if (/\btimpani\b/.test(t)) base = "Timpani";
+  }
+  if ((fam === "Euphonium BC" || fam === "Euphonium TC") && /\bbaritone\b/.test(t) && !/\beuphonium\b/.test(t)) base = fam === "Euphonium BC" ? "Baritone B.C." : "Baritone T.C.";
+  if (fam === "Flute" && /\bpiccolo\b/.test(t) && !/\bflute\b/.test(t)) base = "Piccolo";
+  if (fam === "Trombone" && /\bbass trombone\b/.test(t)) base = "Bass Trombone";
+  if (fam === "Score") return "Score";
+  return base + numText(partNums(text));
+}
+
 function classify(text){
-  const t = norm(text), hits = [];
+  const t = norm(fixOcr(text)), hits = [];
   for (const [re, fam] of RX) if (re.test(t)) hits.push(fam);
   const distinct = new Set(hits); distinct.delete("Percussion");
   if (hits.includes("Score") || distinct.size >= 5) return "Score";
   return hits[0] || null;
 }
 function partNums(label){
-  const t = norm(label);
+  const t = norm(fixOcr(label));
   let m = t.match(/\b([1-4])(?:st|nd|rd|th)?\s*(?:&|and|\/|-|–|,)\s*([1-4])(?:st|nd|rd|th)?\b/);
   if (m){ const a=+m[1], b=+m[2], out=[]; for (let i=Math.min(a,b); i<=Math.max(a,b); i++) out.push(i); return out; }
   m = t.match(/\b([1-4])(?:st|nd|rd|th)?\b/);
@@ -355,12 +426,8 @@ function cleanLabel(s){
 function labelFromLines(lines){
   const fam = classify(lines.join("\n"));
   if (!fam) return null;
-  let label = fam;
-  for (const line of lines){
-    const hit = fam === "Score" ? /score|conductor/i.test(line) : classify(line) === fam;
-    if (hit){ label = line; break; }
-  }
-  return { fam, label: cleanLabel(label) || fam };
+  const line = lines.find(l => fam === "Score" ? /score|conductor/i.test(l) : classify(l) === fam) || lines.join(" ");
+  return { fam, label: canonLabel(fam, cleanLabel(line)) };
 }
 
 /* ---------------------------------------------------------------- saved settings */
@@ -869,12 +936,17 @@ async function openFile(file, opts = {}){
       const tc = await page.getTextContent();
       const items = tc.items.filter(it => it.str && it.str.trim());
       if (items.length) withText++;
-      const top = items.filter(it => it.transform[5] > y0 + h*0.78).map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str }));
+      const top = items.filter(it => it.transform[5] > y0 + h*0.78).map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str, w: it.width || 0, fs: Math.abs(it.transform[0]) || 10 }));
       top.sort((a, b) => b.y - a.y || a.x - b.x);
       const lines = [];
       for (const it of top){ const L = lines.find(l => Math.abs(l.y - it.y) < 3); if (L) L.items.push(it); else lines.push({ y: it.y, items: [it] }); }
-      const text = lines.map(l => l.items.sort((a, b) => a.x - b.x).map(i => i.s).join(" ").replace(/\s+/g, " ").trim());
-      state.pageInfo.push(Object.assign({ hasText: items.length > 0 }, labelFromLines(text) || {}));
+      const text = lines.map(l => {
+        const its = l.items.sort((a, b) => a.x - b.x); let s = "";
+        its.forEach((it, k) => { if (k){ const prev = its[k-1], gap = it.x - (prev.x + prev.w); s += (prev.w && gap < Math.max(0.8, prev.fs * 0.12)) ? "" : " "; } s += it.s; });
+        return s.replace(/\s+/g, " ").trim();
+      });
+      const titleLines = text.slice(0, 2).map(l => norm(fixOcr(l)).replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim());
+      state.pageInfo.push(Object.assign({ hasText: items.length > 0, titleLines }, labelFromLines(text) || {}));
     }
     setProgress(null);
     state.scanned = withText === 0;
@@ -906,17 +978,63 @@ async function openFile(file, opts = {}){
 
 function detectStarts(){
   state.starts = new Map();
+  const info = state.pageInfo, n = info.length;
+  // A title repeated at the top of each part's first page (but not continuation pages) marks where parts begin.
+  const tally = {};
+  info.forEach(pi => { if (pi.titleLines && pi.titleLines[0]) tally[pi.titleLines[0]] = (tally[pi.titleLines[0]] || 0) + 1; });
+  let title = null, cnt = 0;
+  for (const [k, v] of Object.entries(tally)) if (v > cnt && k.length >= 3){ title = k; cnt = v; }
+  const useTitle = !!title && cnt >= 3 && cnt / n >= 0.3 && cnt / n < 0.95 && !classify(title);
   let cur = null;
-  state.pageInfo.forEach((pi, i) => {
-    const page = i + 1;
-    if (pi.fam && (!cur || cur.label.toLowerCase() !== pi.label.toLowerCase())){
-      cur = { label: pi.label, fam: pi.fam, override: null };
-      state.starts.set(page, cur);
-    } else if (!cur){
-      cur = { label: state.scanned ? "Part 1" : "Front matter", fam: "Other", override: null };
-      state.starts.set(page, cur);
-    }
+  info.forEach((pi, i) => {
+    const page = i + 1, hasTitle = useTitle && (pi.titleLines || []).includes(title);
+    const sameLabel = pi.fam && cur && cur.label.toLowerCase() === pi.label.toLowerCase();
+    let start;
+    if (!cur) start = true;
+    else if (useTitle) start = (hasTitle && !sameLabel) || (!hasTitle && pi.fam && pi.fam !== cur.fam && pi.fam !== "Score");
+    else start = !!pi.fam && !sameLabel;
+    if (!start) return;
+    if (pi.fam) cur = { label: pi.label, fam: pi.fam, override: null };
+    else if (!cur && !useTitle) cur = { label: state.scanned ? "Part 1" : "Front matter", fam: "Other", override: null };
+    else cur = { label: `Unknown part (p. ${page})`, fam: "Other", override: null, unknown: true };
+    state.starts.set(page, cur);
   });
+  inferNames();
+}
+// Fill in what the text couldn't tell us: missing part numbers, and unreadable parts from score order.
+const GUESS_ORDER = ["Flute","Oboe","Bassoon","Clarinet","Bass Clarinet","Alto Sax","Tenor Sax","Bari Sax","Trumpet","Horn","Trombone","Euphonium BC","Euphonium TC","Tuba","String Bass","Piano","Percussion"];
+function inferNames(){
+  const segs = [...state.starts.entries()].sort((a, b) => a[0] - b[0]);
+  // 1) "Clarinet" next to "Clarinet 2" and "Clarinet 3" is almost certainly Clarinet 1
+  const byFam = {};
+  segs.forEach(([pg, s]) => { if (INSTR_IDS.includes(s.fam)) (byFam[s.fam] = byFam[s.fam] || []).push(s); });
+  for (const [fam, list] of Object.entries(byFam)){
+    const nums = new Set(); list.forEach(s => partNums(s.label).forEach(x => nums.add(x)));
+    const plain = list.filter(s => !partNums(s.label).length && s.label === CANON[fam]);
+    if (nums.size && plain.length === 1){
+      let m = 1; while (nums.has(m)) m++;
+      if (m <= 4){ plain[0].label = CANON[fam] + " " + m; plain[0].inferred = true; }
+    }
+  }
+  // 2) runs of unreadable parts between two known parts, filled from standard score order
+  const present = new Set(segs.filter(([, s]) => !s.unknown).map(([, s]) => s.fam));
+  for (let i = 0; i < segs.length; i++){
+    if (!segs[i][1].unknown) continue;
+    let j = i; while (j + 1 < segs.length && segs[j + 1][1].unknown) j++;
+    const run = segs.slice(i, j + 1).map(x => x[1]);
+    const A = i > 0 ? segs[i - 1][1] : null, B = j + 1 < segs.length ? segs[j + 1][1] : null;
+    const iA = A ? GUESS_ORDER.indexOf(A.fam) : -1, iB = B ? GUESS_ORDER.indexOf(B.fam) : GUESS_ORDER.length;
+    if ((A && iA < 0) || (B && iB < 0) || iB <= iA){ i = j; continue; }
+    const fams = GUESS_ORDER.slice(iA + 1, iB).filter(f => !present.has(f));
+    let picks = null;
+    if (fams.length === run.length) picks = fams.map(f => ({ fam: f, label: CANON[f] }));
+    else if (A && fams.length === run.length - 1 && partNums(A.label).length === 1){
+      const nxt = partNums(A.label)[0] + 1;
+      if (nxt <= 4) picks = [{ fam: A.fam, label: CANON[A.fam] + " " + nxt }].concat(fams.map(f => ({ fam: f, label: CANON[f] })));
+    }
+    if (picks) run.forEach((s, k) => { s.fam = picks[k].fam; s.label = picks[k].label; s.guessed = true; s.unknown = false; });
+    i = j;
+  }
 }
 
 /* ---------------------------------------------------------------- scan cleanup */
@@ -1074,7 +1192,7 @@ $("clPreview").addEventListener("click", async () => {
 $("clRun").addEventListener("click", async () => {
   const btn = $("clRun"); btn.disabled = true;
   try {
-    if (!state.original) state.original = { bytes: state.bytes, name: state.fileName, segs: state.knownParts ? [...state.starts.entries()].map(([start, s]) => ({ start, label: s.label, fam: s.famManual || s.fam !== "Other" ? s.fam : null })) : null };
+    if (!state.original) state.original = { bytes: state.bytes, name: state.fileName, segs: (state.knownParts || !state.scanned) ? [...state.starts.entries()].map(([start, s]) => ({ start, label: s.label, fam: s.famManual || s.fam !== "Other" ? s.fam : null })) : null };
     const doc = await sourcePdf(), opt = cleanOpts(), out = await PDFLib.PDFDocument.create();
     const removed = []; let straightened = 0;
     for (let i = 1; i <= doc.numPages; i++){
@@ -1198,23 +1316,29 @@ function refresh(){
   // notice
   const unknown = rows.filter(r => r.flag).length;
   let notice = "";
+  const guessed = rows.filter(r => r.guessed || r.inferred);
+  const real = rows.filter(r => INSTR_IDS.includes(r.fam) && !r.dup), med = real.length ? real.map(r => r.pages).sort((a, b) => a - b)[Math.floor(real.length / 2)] : 0;
+  const long = real.filter(r => r.pages >= 3 && r.pages >= med * 2.5);
+  let extra = "";
+  if (guessed.length) extra += `<p class="notice warn">${guessed.length} part name${guessed.length === 1 ? " was" : "s were"} unreadable and filled in (highlighted below): ${guessed.map(r => `p. ${r.start} ${esc(r.label)}`).join(", ")}. Check them against the page map.</p>`;
+  if (long.length) extra += `<p class="notice warn">${long.map(r => `${esc(r.label)} (${r.pages} pages)`).join(", ")} ${long.length === 1 ? "is" : "are"} much longer than the other parts and may include another part. Check the page map.</p>`;
   if (state.knownParts && !unknown) notice = `<p class="notice ok">${state.merge ? `Merged ${state.merge.items.length} files —` : ""} one part per file. Check the instruments and copy counts below.</p>`;
   else if (state.knownParts) notice = `<p class="notice warn">${unknown} file${unknown === 1 ? "" : "s"} didn't say which instrument in the file name. Pick the instrument for ${unknown === 1 ? "it" : "each"} below.</p>`;
   else if (state.scanned) notice = `<p class="notice warn">This PDF has no readable text (it's probably a scan), so parts couldn't be found automatically. Open the page map below, check “start” on the first page of each part, then name each part and pick its instrument.</p>`;
   else if (unknown) notice = `<p class="notice warn">${unknown} section${unknown === 1 ? "" : "s"} couldn't be matched to an instrument. Pick one, or leave it as “Not a part” to skip it.</p>`;
   else notice = `<p class="notice ok">Found ${rows.filter(r => INSTR_IDS.includes(r.fam)).length} parts. Spot-check the page ranges — open the page map if anything looks merged or split wrong.</p>`;
-  $("scanNotice").innerHTML = notice;
+  $("scanNotice").innerHTML = notice + extra;
   // table
   $("partRows").innerHTML = rows.map(r => {
     const pages = r.start === r.end ? `${r.start}` : `${r.start}–${r.end}`;
     const edited = r.override !== null && r.override !== undefined;
-    return `<tr class="${r.copies === 0 ? "zero" : ""} ${r.flag ? "flag" : ""}" data-start="${r.start}">
+    return `<tr class="${r.copies === 0 ? "zero" : ""} ${r.flag || r.guessed || r.inferred ? "flag" : ""}" data-start="${r.start}">
       <td><span class="sw" style="background:${r.idx % 2 ? "var(--band-b)" : "var(--band-a)"}"></span>${pages}<div class="note">${r.pages} pg</div></td>
       <td><input type="text" data-field="label" value="${esc(r.label)}"></td>
       <td><select data-field="fam">${famOptions(r.fam)}</select></td>
       <td><div class="copies"><input type="number" min="0" max="500" data-field="copies" value="${r.copies}" class="${edited ? "edited" : ""}">
         ${edited ? `<button class="link" data-reset="${r.start}" title="Back to automatic">auto (${r.auto})</button>` : ""}</div></td>
-      <td class="note">${esc(edited ? "Set by hand" : r.note)}${r.names.length ? `<div class="names">${r.names.map(esc).join(", ")}</div>` : ""}</td></tr>`;
+      <td class="note">${esc(edited ? "Set by hand" : r.note)}${r.guessed ? `<div class="names" style="color:var(--warn)">Name unreadable — guessed from score order. Check page ${r.start}.</div>` : r.inferred ? `<div class="names" style="color:var(--warn)">Part number unreadable — assumed. Check page ${r.start}.</div>` : ""}${r.names.length ? `<div class="names">${r.names.map(esc).join(", ")}</div>` : ""}</td></tr>`;
   }).join("");
   paintPageMap();
   // stats
@@ -1235,6 +1359,7 @@ $("partRows").addEventListener("change", e => {
   const tr = e.target.closest("tr"); if (!tr) return;
   const st = state.starts.get(+tr.dataset.start); if (!st) return;
   const f = e.target.dataset.field;
+  st.guessed = st.inferred = st.unknown = false;
   if (f === "label"){ st.label = e.target.value.trim() || st.label; const fam = classify(st.label); if (fam && !st.famManual) st.fam = fam; }
   if (f === "fam"){ st.fam = e.target.value; st.famManual = true; }
   if (f === "copies"){ const v = parseInt(e.target.value, 10); st.override = isNaN(v) ? null : Math.max(0, v); }
