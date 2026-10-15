@@ -165,6 +165,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
       <button id="ensNew">New ensemble</button>
       <button id="ensRename">Rename</button>
       <button id="ensDelete">Delete</button>
+      <button id="ensMove" title="Save this setup to a file, or load one from another computer">Move setup…</button>
     </div>
     <div id="rosterBox"></div>
     <div id="countGrid"></div>
@@ -199,6 +200,23 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
           <div class="rule-ctl"><input type="checkbox" id="setDuplex"></div>
         </label>
       </div>
+    </details>
+
+    <details class="settings" id="syncBox">
+      <summary>Use this setup on another computer</summary>
+      <p class="hint" style="margin-top:8px">Everything here is saved only in this browser. To move it — say from your home laptop to your school computer — save a setup file here, put it somewhere you can reach from the other computer (Google Drive, email, a USB drive), then load it there.</p>
+      <div class="rules">
+        <div class="rule">
+          <div class="rule-text"><b>Save setup file</b><span>Your ensembles, counts, print rules and scan-cleanup settings.</span></div>
+          <div class="rule-ctl"><label class="chk" title="Rosters contain student names"><input type="checkbox" id="syncRosters" checked> Include rosters</label><button type="button" id="syncSave">Save</button></div>
+        </div>
+        <div class="rule">
+          <div class="rule-text"><b>Load setup file</b><span>Adds the file's ensembles here (same-named ones are replaced) and uses its print rules.</span></div>
+          <div class="rule-ctl"><label class="link" style="cursor:pointer;color:var(--accent);text-decoration:underline;font-size:14px">Choose file<input type="file" id="syncLoad" accept=".json,application/json" hidden></label></div>
+        </div>
+      </div>
+      <p class="note" style="margin:8px 0 0">A file with rosters contains student names — keep it in your school account, not a shared folder.</p>
+      <div class="status" id="syncStatus"></div>
     </details>
   </section>
 
@@ -796,6 +814,56 @@ $("ensDelete").addEventListener("click", () => {
   if (!confirm(`Delete "${saved.current}"?`)) return;
   delete saved.ensembles[saved.current]; if (saved.rosters) delete saved.rosters[saved.current];
   saved.current = Object.keys(saved.ensembles)[0]; persist(); renderEnsemble(); refresh();
+});
+
+/* ---------------------------------------------------------------- move setup between computers */
+$("ensMove").addEventListener("click", () => { const box = $("syncBox"); box.open = true; box.scrollIntoView({ behavior: "smooth", block: "center" }); });
+const isEmptyEnsemble = n => !(saved.rosters || {})[n] && INSTR_IDS.every(id => !(saved.ensembles[n] || {})[id]);
+$("syncSave").addEventListener("click", () => {
+  const withRosters = $("syncRosters").checked;
+  let theme = null; try { theme = localStorage.getItem("partCopier.theme"); } catch (e) {}
+  const keep = Object.keys(saved.ensembles).filter(n => !isEmptyEnsemble(n));
+  const ensembles = Object.fromEntries((keep.length ? keep : Object.keys(saved.ensembles)).map(n => [n, saved.ensembles[n]]));
+  const data = { app: "part-copier", version: 1, exported: new Date().toISOString(),
+    settings: saved.settings, ensembles, current: saved.current,
+    rosters: withRosters ? (saved.rosters || {}) : {}, theme };
+  const d = new Date(), stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: "application/json" }));
+  a.download = `Part Copier setup ${stamp}.json`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  const n = Object.keys(ensembles).length, r = withRosters ? Object.keys(saved.rosters || {}).length : 0;
+  $("syncStatus").textContent = `Saved ${n} ensemble${n === 1 ? "" : "s"}${r ? ` and ${r} roster${r === 1 ? "" : "s"}` : ""}. Now load that file on your other computer.`;
+});
+$("syncLoad").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (!data || data.app !== "part-copier" || typeof data.ensembles !== "object") throw new Error("this isn't a Part Copier setup file");
+    const names = Object.keys(data.ensembles);
+    const clash = names.filter(n => saved.ensembles[n] && !isEmptyEnsemble(n));
+    if (clash.length && !confirm(`Replace ${clash.length} ensemble${clash.length === 1 ? "" : "s"} already here (${clash.join(", ")}) with the versions in this file?`)) return;
+    for (const n of names) saved.ensembles[n] = Object.assign(blankCounts(), data.ensembles[n]);
+    saved.rosters = saved.rosters || {};
+    let r = 0;
+    for (const [n, ros] of Object.entries(data.rosters || {})) if (ros && Array.isArray(ros.students)){ saved.rosters[n] = ros; r++; }
+    if (data.settings){
+      saved.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings);
+      saved.settings.fallbacks = Object.assign({}, DEFAULT_SETTINGS.fallbacks, data.settings.fallbacks || {});
+      saved.settings.clean = Object.assign({}, DEFAULT_SETTINGS.clean, data.settings.clean || {});
+    }
+    // drop the untouched starter ensemble if the file brought real ones
+    if (saved.ensembles["My Band"] && !names.includes("My Band") && isEmptyEnsemble("My Band")) delete saved.ensembles["My Band"];
+    saved.current = data.current && saved.ensembles[data.current] ? data.current : names[0] || saved.current;
+    if (data.theme === "light" || data.theme === "dark"){
+      try { localStorage.setItem("partCopier.theme", data.theme); } catch (err) {}
+      document.documentElement.setAttribute("data-theme", data.theme); paintThemeToggle();
+    }
+    persist(); renderEnsemble(); renderSettings(); renderCleanSettings(); refresh();
+    $("syncStatus").textContent = `Loaded ${names.length} ensemble${names.length === 1 ? "" : "s"}${r ? ` and ${r} roster${r === 1 ? "" : "s"}` : ""} from ${f.name}.`;
+  } catch (err) {
+    $("syncStatus").textContent = "Couldn't load that file: " + (err && err.message || err) + ".";
+  }
 });
 
 /* ---------------------------------------------------------------- UI: settings */
