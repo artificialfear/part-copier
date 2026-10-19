@@ -246,7 +246,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
           <div class="rule-ctl"><select id="clMode"><option value="bw">Black &amp; white</option><option value="gray">Grayscale</option></select></div></div>
         <div class="rule"><div class="rule-text"><b>Darkness</b><span>Raise it if notes or staff lines come out broken; lower it if the paper looks speckled.</span></div>
           <div class="rule-ctl"><input type="range" id="clDark" min="-40" max="40" step="5" style="width:140px"><span id="clDarkVal" class="note" style="width:28px;text-align:right"></span></div></div>
-        <label class="rule clickable"><div class="rule-text"><b>Remove dark scanner edges</b><span>Whites out black bands along the page edges.</span></div><div class="rule-ctl"><input type="checkbox" id="clEdges"></div></label>
+        <label class="rule clickable"><div class="rule-text"><b>Remove dark scanner edges</b><span>Only for scans with black shadows or bands along the edges (e.g. scanned on the glass with the lid up). Leave off otherwise — it can nibble music that touches the edge.</span></div><div class="rule-ctl"><input type="checkbox" id="clEdges"></div></label>
         <label class="rule clickable"><div class="rule-text"><b>Remove blank pages</b><span>Drops empty backs of single-sided parts scanned two-sided.</span></div><div class="rule-ctl"><input type="checkbox" id="clBlanks"></div></label>
         <div class="rule"><div class="rule-text"><b>Page size</b><span>Fit to letter trims the empty margins, then scales the music to fill an 8.5×11 page so nothing gets cut off.</span></div>
           <div class="rule-ctl"><select id="clFit"><option value="letter">Fit to letter (8.5×11)</option><option value="keep">Keep original size</option></select></div></div>
@@ -453,7 +453,7 @@ function labelFromLines(lines){
 const STORE = "partCopier.v1";
 const DEFAULT_SETTINGS = { oddTo:"first", percAll:true, spares:0, includeScore:false, scoreCopies:1, duplex:false,
                            fallbacks:{ "Bassoon":"Trombone|low", "Trumpet":"Cornet|split", "Cornet":"Trumpet|split" },
-                           clean:{ deskew:true, mode:"bw", darkness:0, edges:true, blanks:true, fit:"letter", dpi:300 } };
+                           clean:{ v:2, deskew:true, mode:"bw", darkness:0, edges:false, blanks:true, fit:"letter", dpi:300 } };
 function blankCounts(){ return Object.fromEntries(INSTR_IDS.map(id => [id, 0])); }
 let saved = load();
 function load(){
@@ -462,7 +462,9 @@ function load(){
     if (s && s.ensembles && Object.keys(s.ensembles).length) {
       s.settings = Object.assign({}, DEFAULT_SETTINGS, s.settings || {});
       s.settings.fallbacks = Object.assign({}, DEFAULT_SETTINGS.fallbacks, (s.settings||{}).fallbacks || {});
-      s.settings.clean = Object.assign({}, DEFAULT_SETTINGS.clean, (s.settings||{}).clean || {});
+      const oldClean = (s.settings||{}).clean || {};
+      s.settings.clean = Object.assign({}, DEFAULT_SETTINGS.clean, oldClean);
+      if (oldClean.v !== 2){ s.settings.clean.edges = false; s.settings.clean.v = 2; }
       for (const k in s.ensembles) s.ensembles[k] = Object.assign(blankCounts(), s.ensembles[k]);
       if (!s.ensembles[s.current]) s.current = Object.keys(s.ensembles)[0];
       s.rosters = s.rosters || {};
@@ -850,7 +852,9 @@ $("syncLoad").addEventListener("change", async e => {
     if (data.settings){
       saved.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings);
       saved.settings.fallbacks = Object.assign({}, DEFAULT_SETTINGS.fallbacks, data.settings.fallbacks || {});
-      saved.settings.clean = Object.assign({}, DEFAULT_SETTINGS.clean, data.settings.clean || {});
+      const fileClean = data.settings.clean || {};
+      saved.settings.clean = Object.assign({}, DEFAULT_SETTINGS.clean, fileClean);
+      if (fileClean.v !== 2){ saved.settings.clean.edges = false; saved.settings.clean.v = 2; }
     }
     // drop the untouched starter ensemble if the file brought real ones
     if (saved.ensembles["My Band"] && !names.includes("My Band") && isEmptyEnsemble("My Band")) delete saved.ensembles["My Band"];
@@ -1164,7 +1168,7 @@ function rotateCanvas(src, deg){
 function removeEdges(dark, W, H, opt){
   let removed = 0;
   const zone = Math.round(Math.min(W, H) * 0.08), minThick = Math.max(4, Math.round(Math.min(W, H) / 2550 * 7));
-  const speckMax = Math.round((opt.dpi / 300) * (opt.dpi / 300) * 900), edgeBand = Math.round(Math.min(W, H) * 0.015);
+  const speckMax = Math.round((opt.dpi / 300) * (opt.dpi / 300) * 60), edgeBand = Math.round(Math.min(W, H) * 0.01);
   const seen = new Uint8Array(W * H), q = new Int32Array(W * H);
   const inZone = i => { const y = (i / W) | 0, xx = i - y * W; return xx < zone || y < zone || xx >= W - zone || y >= H - zone; };
   const flood = s => {
@@ -1182,7 +1186,10 @@ function removeEdges(dark, W, H, opt){
     const nearL = minx < edgeBand, nearR = maxx >= W - edgeBand, nearT = miny < edgeBand, nearB = maxy >= H - edgeBand;
     const solid = tail > 50 && tail / long >= minThick && density >= 0.6;     // mostly solid black: shadow / wedge
     const speck = tail <= speckMax && (nearL || nearR || nearT || nearB) && bw < edgeBand * 2 && bh < edgeBand * 2;
-    const edgeLine = (bw <= edgeBand && (nearL || nearR) && bh > H * 0.02) || (bh <= edgeBand && (nearT || nearB) && bw > W * 0.02);
+    const edgeLine = (bw <= edgeBand && (nearL || nearR) && bh > H * 0.12) || (bh <= edgeBand && (nearT || nearB) && bw > W * 0.12)
+      // slanted or broken paper-edge shadow: a thin sliver running along the border
+      || ((nearL || nearR) && bh > H * 0.03 && bh > bw * 4 && tail / long < minThick)
+      || ((nearT || nearB) && bw > W * 0.03 && bw > bh * 4 && tail / long < minThick);
     if (solid || speck || edgeLine){ for (let k = 0; k < tail; k++) dark[q[k]] = 0; removed += tail; }
   };
   for (let xx = 0; xx < W; xx++){ for (const y of [0, H - 1]){ const i = y * W + xx; if (dark[i] && !seen[i]) flood(i); } }
@@ -1198,27 +1205,29 @@ async function cleanPage(pdfPage, opt){
   x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
   await pdfPage.render({ canvasContext: x, viewport: vp }).promise;
   // 1) remove scanner shadows / wedges / edge lines while they are still aligned with the scan frame
-  let removed = 0, t0 = 160;
+  let removed = 0, t0 = 160, blankDet = false;
   const touched = { top: 0, bottom: 0, left: 0, right: 0 };
   {
     const W0 = c.width, H0 = c.height, img0 = x.getImageData(0, 0, W0, H0), g0 = toGray(img0);
     t0 = inkThreshold(g0, opt.darkness);
     const mask = new Uint8Array(W0 * H0); for (let i = 0; i < g0.length; i++) mask[i] = g0[i] < t0 ? 1 : 0;
-    if (opt.edges){
-      const before = mask.slice();
-      removed = removeEdges(mask, W0, H0, opt);
-      if (removed){
-        const d0 = img0.data;
-        for (let j = 0; j < mask.length; j++) if (before[j] && !mask[j]){ const i = j * 4; d0[i] = d0[i+1] = d0[i+2] = 255; }
-        x.putImageData(img0, 0, 0);
-      }
+    // detection copy: scanner artifacts removed, used for the blank-page and cut-off checks either way
+    const det = mask.slice();
+    const artifacts = removeEdges(det, W0, H0, opt);
+    let detInk = 0; for (let j = 0; j < det.length; j++) detInk += det[j];
+    blankDet = detInk / (W0 * H0) < 0.0012;
+    if (opt.edges && artifacts){
+      removed = artifacts;
+      const d0 = img0.data;
+      for (let j = 0; j < mask.length; j++) if (mask[j] && !det[j]){ const i = j * 4; d0[i] = d0[i+1] = d0[i+2] = 255; }
+      x.putImageData(img0, 0, 0);
     }
     // does real ink still reach an edge of the scan? then the scan itself probably cut the music off
     const band = Math.max(2, Math.round(Math.min(W0, H0) * 0.006));
     const edgeInk = side => {
       let n = 0, len;
-      if (side === "top" || side === "bottom"){ len = W0; const y0 = side === "top" ? 0 : H0 - band; for (let y = y0; y < y0 + band; y++) for (let xx = 0; xx < W0; xx++) n += mask[y*W0 + xx]; }
-      else { len = H0; const x0 = side === "left" ? 0 : W0 - band; for (let y = 0; y < H0; y++) for (let xx = x0; xx < x0 + band; xx++) n += mask[y*W0 + xx]; }
+      if (side === "top" || side === "bottom"){ len = W0; const y0 = side === "top" ? 0 : H0 - band; for (let y = y0; y < y0 + band; y++) for (let xx = 0; xx < W0; xx++) n += det[y*W0 + xx]; }
+      else { len = H0; const x0 = side === "left" ? 0 : W0 - band; for (let y = 0; y < H0; y++) for (let xx = x0; xx < x0 + band; xx++) n += det[y*W0 + xx]; }
       return n / (band * len);
     };
     for (const side of ["top", "bottom", "left", "right"]) touched[side] = edgeInk(side);
@@ -1239,7 +1248,7 @@ async function cleanPage(pdfPage, opt){
   while (bot > top && rows[bot] < rowMin) bot--;
   while (left < W && cols[left] < colMin) left++;
   while (right > left && cols[right] < colMin) right--;
-  const blank = inked / (W * H) < 0.0012 || top >= bot || left >= right;
+  const blank = blankDet || inked / (W * H) < 0.0012 || top >= bot || left >= right;
   // write cleaned pixels
   const d = img.data;
   for (let i = 0, j = 0; j < g.length; i += 4, j++){
