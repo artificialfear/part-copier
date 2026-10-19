@@ -33,6 +33,11 @@ then **Clean up all pages**; the parts list switches to the cleaned pages, and
 **Download cleaned PDF** saves a copy for your library. Clean up before marking parts
 in the page map, since removing blank pages renumbers them.
 
+Cleanup removes only *solid* dark areas at the edges (scanner shadows, the dark wedges
+from a crooked feed, lid lines, staples) — music that runs to the edge of the scan is
+kept. If the music itself runs off the edge of the original scan, cleanup lists those
+pages: that part was cut off by the copier and can only be fixed by rescanning.
+
 Best scan settings on a copier: document feeder, scan-to-email, 300 dpi, black & white,
 original size set to Auto/Mixed (or 11×17) so 9×12 pages aren't cut off.
 

@@ -110,7 +110,7 @@ input:disabled,select:disabled{opacity:.4;cursor:not-allowed}
 .drop:hover{border-color:var(--accent)}
 .drop.over{border-color:var(--accent);background:var(--accent-soft)}
 .drop strong{display:block;font-size:16px}
-.status{margin-top:10px;color:var(--muted);font-size:14px}
+.status{margin-top:10px;color:var(--muted);font-size:14px;white-space:pre-line}
 .notice{border-radius:8px;padding:10px 12px;margin:0 0 12px;font-size:14px}
 .notice.warn{background:var(--warn-soft);color:var(--warn)}
 .notice.ok{background:var(--ok-soft);color:var(--ok)}
@@ -1127,11 +1127,17 @@ function otsu(g){
   }
   return t;
 }
+// Ink/paper threshold that can never fall inside the paper's own grey noise (blank or nearly blank pages)
+function inkThreshold(g, darkness){
+  const hist = new Uint32Array(256); for (let i = 0; i < g.length; i++) hist[g[i]]++;
+  let acc = 0, med = 255; for (let v = 0; v < 256; v++){ acc += hist[v]; if (acc >= g.length / 2){ med = v; break; } }
+  return Math.max(30, Math.min(235, Math.min(otsu(g), med - 40) + darkness));
+}
 function estimateSkew(src){
   const W = 900, sc = W / src.width, H = Math.round(src.height * sc);
   const c = newCanvas(W, H), x = ctx2d(c);
   x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); x.drawImage(src, 0, 0, W, H);
-  const g = toGray(x.getImageData(0, 0, W, H)), t = otsu(g);
+  const g = toGray(x.getImageData(0, 0, W, H)), t = inkThreshold(g, 0);
   const xs = [], ys = [], mx = W * 0.06, my = H * 0.06;
   for (let y = my | 0; y < H - my; y++) for (let xx = mx | 0; xx < W - mx; xx++) if (g[y*W + xx] < t){ xs.push(xx); ys.push(y); }
   if (xs.length < 500) return 0;
@@ -1146,10 +1152,42 @@ function estimateSkew(src){
   return Math.abs(best) < 0.08 ? 0 : best;
 }
 function rotateCanvas(src, deg){
-  const c = newCanvas(src.width, src.height), x = ctx2d(c);
+  const r = Math.abs(deg) * Math.PI / 180, cs = Math.cos(r), sn = Math.sin(r);
+  const c = newCanvas(src.width * cs + src.height * sn, src.width * sn + src.height * cs), x = ctx2d(c);
   x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
   x.translate(c.width / 2, c.height / 2); x.rotate(deg * Math.PI / 180); x.drawImage(src, -src.width / 2, -src.height / 2);
   return c;
+}
+// Whiten SOLID dark areas touching the scan border (scanner shadows, wedges from crooked feeds), thin lines hugging
+// a border (lid/feeder edge) and tiny specks at the very edge (staples, punch holes). Music that runs to the edge
+// is sparse — staff lines with lots of white between them — and is left alone.
+function removeEdges(dark, W, H, opt){
+  let removed = 0;
+  const zone = Math.round(Math.min(W, H) * 0.08), minThick = Math.max(4, Math.round(Math.min(W, H) / 2550 * 7));
+  const speckMax = Math.round((opt.dpi / 300) * (opt.dpi / 300) * 900), edgeBand = Math.round(Math.min(W, H) * 0.015);
+  const seen = new Uint8Array(W * H), q = new Int32Array(W * H);
+  const inZone = i => { const y = (i / W) | 0, xx = i - y * W; return xx < zone || y < zone || xx >= W - zone || y >= H - zone; };
+  const flood = s => {
+    let head = 0, tail = 0, minx = W, maxx = 0, miny = H, maxy = 0, interior = 0;
+    q[tail++] = s; seen[s] = 1;
+    const r = Math.max(2, Math.round(opt.dpi / 75));          // ~1/75": thicker than any staff line or stem
+    while (head < tail){
+      const i = q[head++], y = (i / W) | 0, xx = i - y * W;
+      if (xx < minx) minx = xx; if (xx > maxx) maxx = xx; if (y < miny) miny = y; if (y > maxy) maxy = y;
+      if (xx >= r && xx < W - r && y >= r && y < H - r && dark[i - r] && dark[i + r] && dark[i - r*W] && dark[i + r*W]) interior++;
+      const nb = [xx > 0 ? i - 1 : -1, xx < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1];
+      for (const n of nb) if (n >= 0 && !seen[n] && dark[n] && inZone(n)){ seen[n] = 1; q[tail++] = n; }
+    }
+    const bw = maxx - minx + 1, bh = maxy - miny + 1, long = Math.max(bw, bh), density = interior / tail;
+    const nearL = minx < edgeBand, nearR = maxx >= W - edgeBand, nearT = miny < edgeBand, nearB = maxy >= H - edgeBand;
+    const solid = tail > 50 && tail / long >= minThick && density >= 0.6;     // mostly solid black: shadow / wedge
+    const speck = tail <= speckMax && (nearL || nearR || nearT || nearB) && bw < edgeBand * 2 && bh < edgeBand * 2;
+    const edgeLine = (bw <= edgeBand && (nearL || nearR) && bh > H * 0.02) || (bh <= edgeBand && (nearT || nearB) && bw > W * 0.02);
+    if (solid || speck || edgeLine){ for (let k = 0; k < tail; k++) dark[q[k]] = 0; removed += tail; }
+  };
+  for (let xx = 0; xx < W; xx++){ for (const y of [0, H - 1]){ const i = y * W + xx; if (dark[i] && !seen[i]) flood(i); } }
+  for (let y = 0; y < H; y++){ for (const xx of [0, W - 1]){ const i = y * W + xx; if (dark[i] && !seen[i]) flood(i); } }
+  return removed;
 }
 async function cleanPage(pdfPage, opt){
   const vp0 = pdfPage.getViewport({ scale: 1 });
@@ -1159,34 +1197,39 @@ async function cleanPage(pdfPage, opt){
   let c = newCanvas(vp.width, vp.height); let x = ctx2d(c);
   x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
   await pdfPage.render({ canvasContext: x, viewport: vp }).promise;
+  // 1) remove scanner shadows / wedges / edge lines while they are still aligned with the scan frame
+  let removed = 0, t0 = 160;
+  const touched = { top: 0, bottom: 0, left: 0, right: 0 };
+  {
+    const W0 = c.width, H0 = c.height, img0 = x.getImageData(0, 0, W0, H0), g0 = toGray(img0);
+    t0 = inkThreshold(g0, opt.darkness);
+    const mask = new Uint8Array(W0 * H0); for (let i = 0; i < g0.length; i++) mask[i] = g0[i] < t0 ? 1 : 0;
+    if (opt.edges){
+      const before = mask.slice();
+      removed = removeEdges(mask, W0, H0, opt);
+      if (removed){
+        const d0 = img0.data;
+        for (let j = 0; j < mask.length; j++) if (before[j] && !mask[j]){ const i = j * 4; d0[i] = d0[i+1] = d0[i+2] = 255; }
+        x.putImageData(img0, 0, 0);
+      }
+    }
+    // does real ink still reach an edge of the scan? then the scan itself probably cut the music off
+    const band = Math.max(2, Math.round(Math.min(W0, H0) * 0.006));
+    const edgeInk = side => {
+      let n = 0, len;
+      if (side === "top" || side === "bottom"){ len = W0; const y0 = side === "top" ? 0 : H0 - band; for (let y = y0; y < y0 + band; y++) for (let xx = 0; xx < W0; xx++) n += mask[y*W0 + xx]; }
+      else { len = H0; const x0 = side === "left" ? 0 : W0 - band; for (let y = 0; y < H0; y++) for (let xx = x0; xx < x0 + band; xx++) n += mask[y*W0 + xx]; }
+      return n / (band * len);
+    };
+    for (const side of ["top", "bottom", "left", "right"]) touched[side] = edgeInk(side);
+  }
+  // 2) straighten (the canvas grows so corners aren't cut off)
   let angle = 0;
   if (opt.deskew){ angle = estimateSkew(c); if (angle) { c = rotateCanvas(c, -angle); x = ctx2d(c); } }
+  // 3) final black & white / grayscale mask on the straightened page
   const W = c.width, H = c.height, img = x.getImageData(0, 0, W, H), g = toGray(img);
-  const t = Math.max(30, Math.min(235, otsu(g) + opt.darkness));
+  const t = t0;
   const dark = new Uint8Array(W * H); for (let i = 0; i < g.length; i++) dark[i] = g[i] < t ? 1 : 0;
-  // whiten thick dark areas touching the page border (scanner shadows, wedges from crooked feeds, lid edges)
-  if (opt.edges){
-    const zone = Math.round(Math.min(W, H) * 0.08), minThick = Math.max(4, Math.round(Math.min(W, H) / 2550 * 7));
-    const seen = new Uint8Array(W * H), q = new Int32Array(W * H);
-    const inZone = i => { const y = (i / W) | 0, xx = i - y * W; return xx < zone || y < zone || xx >= W - zone || y >= H - zone; };
-    const flood = s => {
-      let head = 0, tail = 0, minx = W, maxx = 0, miny = H, maxy = 0;
-      q[tail++] = s; seen[s] = 1;
-      while (head < tail){
-        const i = q[head++], y = (i / W) | 0, xx = i - y * W;
-        if (xx < minx) minx = xx; if (xx > maxx) maxx = xx; if (y < miny) miny = y; if (y > maxy) maxy = y;
-        const nb = [xx > 0 ? i - 1 : -1, xx < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1];
-        for (const n of nb) if (n >= 0 && !seen[n] && dark[n] && inZone(n)){ seen[n] = 1; q[tail++] = n; }
-      }
-      const long = Math.max(maxx - minx + 1, maxy - miny + 1);
-      if (tail > 50 && tail / long >= minThick) for (let k = 0; k < tail; k++) dark[q[k]] = 0;
-    };
-    for (let xx = 0; xx < W; xx++){ for (const y of [0, H - 1]){ const i = y * W + xx; if (dark[i] && !seen[i]) flood(i); } }
-    for (let y = 0; y < H; y++){ for (const xx of [0, W - 1]){ const i = y * W + xx; if (dark[i] && !seen[i]) flood(i); } }
-    // clear specks in the outermost 1% (staples, punch holes, edge dust)
-    const e = Math.round(Math.min(W, H) * 0.01);
-    for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) if (y < e || y >= H - e || xx < e || xx >= W - e) dark[y*W + xx] = 0;
-  }
   // content box (ignore specks) + blank test
   const rows = new Uint32Array(H), cols = new Uint32Array(W); let inked = 0;
   for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) if (dark[y*W + xx]){ rows[y]++; cols[xx]++; inked++; }
@@ -1223,7 +1266,8 @@ async function cleanPage(pdfPage, opt){
       ox.putImageData(im, 0, 0);
     }
   }
-  return { canvas: out, blank, angle, ptsW, ptsH };
+  const cutSides = Object.entries(touched).filter(([, v]) => v > 0.004).map(([k]) => k);
+  return { canvas: out, blank, angle, ptsW, ptsH, removed, touched, cutSides: blank ? [] : cutSides };
 }
 const canvasBytes = (c, type, q) => new Promise(res => c.toBlob(b => b.arrayBuffer().then(res), type, q));
 function cleanOpts(){ const o = Object.assign({}, S().clean); o.dpi = +o.dpi; o.darkness = +o.darkness; return o; }
@@ -1257,7 +1301,8 @@ $("clPreview").addEventListener("click", async () => {
     a.width = 400; a.height = Math.round(400 * r.canvas.height / r.canvas.width);
     const ax = a.getContext("2d"); ax.imageSmoothingQuality = "high"; ax.drawImage(r.canvas, 0, 0, a.width, a.height);
     $("clPreviewBox").hidden = false;
-    $("cleanStatus").textContent = r.blank ? `Page ${n} looks blank — it would be removed.` : `Page ${n}${r.angle ? ` straightened by ${Math.abs(r.angle).toFixed(1)}°` : " didn't need straightening"}.`;
+    $("cleanStatus").textContent = r.blank ? `Page ${n} looks blank — it would be removed.` : `Page ${n}${r.angle ? ` straightened by ${Math.abs(r.angle).toFixed(1)}°` : " didn't need straightening"}.` +
+      (r.cutSides.length ? ` The music runs to the ${r.cutSides.join(" and ")} edge of the scan — part of it may have been cut off when it was scanned.` : "");
   } catch (err) { $("cleanStatus").textContent = "Preview failed: " + (err && err.message || err); }
 });
 $("clRun").addEventListener("click", async () => {
@@ -1265,12 +1310,13 @@ $("clRun").addEventListener("click", async () => {
   try {
     if (!state.original) state.original = { bytes: state.bytes, name: state.fileName, segs: (state.knownParts || !state.scanned) ? [...state.starts.entries()].map(([start, s]) => ({ start, label: s.label, fam: s.famManual || s.fam !== "Other" ? s.fam : null })) : null };
     const doc = await sourcePdf(), opt = cleanOpts(), out = await PDFLib.PDFDocument.create();
-    const removed = []; let straightened = 0;
+    const removed = []; let straightened = 0; const cut = [];
     for (let i = 1; i <= doc.numPages; i++){
       $("cleanStatus").textContent = `Cleaning page ${i} of ${doc.numPages}…`; setProgress(i / doc.numPages);
       const page = await doc.getPage(i), r = await cleanPage(page, opt);
       if (r.blank && opt.blanks){ removed.push(i); page.cleanup(); continue; }
       if (r.angle) straightened++;
+      if (r.cutSides.length) cut.push({ page: i, sides: r.cutSides });
       const bytes = opt.mode === "bw" ? await canvasBytes(r.canvas, "image/png") : await canvasBytes(r.canvas, "image/jpeg", 0.85);
       const img = opt.mode === "bw" ? await out.embedPng(bytes) : await out.embedJpg(bytes);
       const pg = out.addPage([r.ptsW, r.ptsH]); pg.drawImage(img, { x: 0, y: 0, width: r.ptsW, height: r.ptsH });
@@ -1295,7 +1341,8 @@ $("clRun").addEventListener("click", async () => {
     $("cleanStatus").textContent = `Cleaned ${doc.numPages - removed.length} page${doc.numPages - removed.length === 1 ? "" : "s"}` +
       (straightened ? ` · straightened ${straightened}` : "") +
       (removed.length ? ` · removed ${removed.length} blank (original p. ${removed.join(", ")})` : "") +
-      ". The parts below now use the cleaned pages.";
+      ". The parts below now use the cleaned pages." +
+      (cut.length ? `\n\nHeads-up: the music runs off the edge of the original scan on ${cut.length} page${cut.length === 1 ? "" : "s"} (${cut.map(c => `p. ${c.page} ${c.sides.join("/")}`).join(", ")}), so a sliver was cut off when it was scanned — usually 9×12 parts scanned at letter size. Cleanup can't bring that back. If anything important is missing, rescan those parts with the copier's original size set to Auto/Mixed or 11×17.` : "");
     $("cleanActions").hidden = false;
   } catch (err) {
     setProgress(null); $("cleanStatus").textContent = "Cleanup failed: " + (err && err.message || err);
