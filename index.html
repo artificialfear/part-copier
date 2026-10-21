@@ -406,7 +406,7 @@ const CANON = { "Flute":"Flute", "Oboe":"Oboe", "Bassoon":"Bassoon", "Clarinet":
   "Tuba":"Tuba", "Percussion":"Percussion", "Piano":"Piano", "String Bass":"String Bass", "Score":"Score" };
 function numText(nums){ return !nums.length ? "" : nums.length === 1 ? " " + nums[0] : nums.length === 2 ? ` ${nums[0]} & ${nums[1]}` : ` ${nums[0]}–${nums[nums.length-1]}`; }
 function canonLabel(fam, text){
-  const t = norm(fixOcr(text));
+  const t = norm(fixOcr(stripAlt(text)));
   let base = CANON[fam] || fam;
   if (fam === "Percussion"){
     if (/\b(mallets?|bells|marimba|xylophone|vibraphone|glockenspiel|chimes)\b/.test(t)) base = "Mallet Percussion";
@@ -416,18 +416,32 @@ function canonLabel(fam, text){
   if (fam === "Flute" && /\bpiccolo\b/.test(t) && !/\bflute\b/.test(t)) base = "Piccolo";
   if (fam === "Trombone" && /\bbass trombone\b/.test(t)) base = "Bass Trombone";
   if (fam === "Score") return "Score";
-  return base + numText(partNums(text));
+  const also = /[\/&]/.test(text) ? classifyAll(text).filter(f => f !== fam && INSTR_IDS.includes(f)) : [];
+  return [base + numText(partNums(text))].concat(also.map(f => CANON[f] || f)).join(" / ");
 }
 
+// "(Opt. Flute 2)", "(alt. Horn)" etc. name a substitute, not the part
+const stripAlt = t => String(t || "").replace(/\((?=[^)]*\b(opt|optional|alt|alternate|or|doubles?)\b)[^)]*\)/gi, " ");
+function famHits(text){
+  const t = norm(fixOcr(stripAlt(text))), hits = [];
+  RX.forEach(([re, fam], order) => { const m = re.exec(t); if (m) hits.push({ fam, at: m.index, order }); });
+  hits.sort((a, b) => a.at - b.at || a.order - b.order);
+  return hits;
+}
 function classify(text){
-  const t = norm(fixOcr(text)), hits = [];
-  for (const [re, fam] of RX) if (re.test(t)) hits.push(fam);
-  const distinct = new Set(hits); distinct.delete("Percussion");
-  if (hits.includes("Score") || distinct.size >= 5) return "Score";
-  return hits[0] || null;
+  const hits = famHits(text), fams = hits.map(h => h.fam);
+  const distinct = new Set(fams); distinct.delete("Percussion");
+  if (fams.includes("Score") || distinct.size >= 5) return "Score";
+  return fams[0] || null;
+}
+// every instrument a combined part names, e.g. "Trombone/Euphonium/Bassoon"
+function classifyAll(text){
+  const out = [];
+  for (const h of famHits(text)) if (h.fam !== "Score" && !out.includes(h.fam)) out.push(h.fam);
+  return out;
 }
 function partNums(label){
-  const t = norm(fixOcr(label));
+  const t = norm(fixOcr(stripAlt(label)));
   let m = t.match(/\b([1-4])(?:st|nd|rd|th)?\s*(?:&|and|\/|-|–|,)\s*([1-4])(?:st|nd|rd|th)?\b/);
   if (m){ const a=+m[1], b=+m[2], out=[]; for (let i=Math.min(a,b); i<=Math.max(a,b); i++) out.push(i); return out; }
   m = t.match(/\b([1-4])(?:st|nd|rd|th)?\b/);
@@ -443,10 +457,22 @@ function cleanLabel(s){
   return s.replace(/\s+/g, " ").replace(/^[\s\-–]+|[\s\-–]+$/g, "").slice(0, 60);
 }
 function labelFromLines(lines){
+  // "Trombone/" + "Euphonium/" + "Bassoon" printed on separate lines is one part name
+  // (the title and composer lines can sit between them, so look a few lines ahead for the next instrument)
+  lines = lines.slice();
+  for (let i = 0; i < lines.length; i++){
+    while (/[\/&]\s*$/.test(lines[i])){
+      let j = i + 1; while (j < lines.length && j <= i + 3 && !classify(lines[j])) j++;
+      if (j >= lines.length || j > i + 3) break;
+      lines[i] = lines[i] + " " + lines[j]; lines.splice(j, 1);
+    }
+  }
   const fam = classify(lines.join("\n"));
   if (!fam) return null;
   const line = lines.find(l => fam === "Score" ? /score|conductor/i.test(l) : classify(l) === fam) || lines.join(" ");
-  return { fam, label: canonLabel(fam, cleanLabel(line)) };
+  const clean = cleanLabel(line);
+  const also = fam !== "Score" && /[\/&]/.test(clean) ? classifyAll(clean).filter(f => f !== fam && INSTR_IDS.includes(f)) : [];
+  return { fam, label: canonLabel(fam, clean), also };
 }
 
 /* ---------------------------------------------------------------- saved settings */
@@ -617,6 +643,17 @@ function plan(){
   // instruments with no part of their own whose players split across another instrument's parts
   const present = new Set(rows.filter(r => !r.dup).map(r => r.fam));
   const pooled = {}, pooledFrom = {};
+  for (const r of rows){
+    if (r.dup || !r.also || !r.also.length) continue;
+    for (const f of r.also){
+      if (present.has(f)) continue;
+      present.add(f);
+      const g = groups[f] || [];
+      if (!g.length) continue;
+      pooled[r.fam] = (pooled[r.fam] || []).concat(g);
+      (pooledFrom[r.fam] = pooledFrom[r.fam] || []).push(`${g.length} ${SHORT(f)}`);
+    }
+  }
   for (const id of INSTR_IDS){
     const g = groups[id], target = st.fallbacks[id] || "";
     if (!g.length || present.has(id) || !target.endsWith("|split")) continue;
@@ -652,7 +689,7 @@ function plan(){
   for (const id of INSTR_IDS){
     const g = groups[id];
     if (!g.length) continue;
-    if (rows.some(r => r.fam === id && !r.dup)) continue;
+    if (rows.some(r => !r.dup && (r.fam === id || (r.also || []).includes(id)))) continue;
     const target = st.fallbacks[id] || "";
     let hit = null;
     if (target.endsWith("|split")){
@@ -1019,7 +1056,9 @@ async function openFile(file, opts = {}){
         return s.replace(/\s+/g, " ").trim();
       });
       const titleLines = text.slice(0, 2).map(l => norm(fixOcr(l)).replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim());
-      state.pageInfo.push(Object.assign({ hasText: items.length > 0, titleLines }, labelFromLines(text) || {}));
+      const letters = text.join(" ").replace(/[\s\d\p{P}\p{S}]/gu, ""), latin = letters.replace(/[^A-Za-z\u00C0-\u024F]/g, "");
+      const junk = letters.length >= 4 && latin.length / letters.length < 0.7;
+      state.pageInfo.push(Object.assign({ hasText: items.length > 0, titleLines, junk }, labelFromLines(text) || {}));
     }
     setProgress(null);
     state.scanned = withText === 0;
@@ -1069,7 +1108,7 @@ function detectStarts(){
     else if (useTitle) start = (hasTitle && !sameLabel) || (!hasTitle && pi.fam && pi.fam !== cur.fam && pi.fam !== "Score");
     else start = !!pi.fam && !sameLabel;
     if (!start) return;
-    if (pi.fam) cur = { label: pi.label, fam: pi.fam, override: null };
+    if (pi.fam) cur = { label: pi.label, fam: pi.fam, also: pi.also || [], override: null };
     else if (!cur && !useTitle) cur = { label: state.scanned ? "Part 1" : "Front matter", fam: "Other", override: null };
     else cur = { label: `Unknown part (p. ${page})`, fam: "Other", override: null, unknown: true };
     state.starts.set(page, cur);
@@ -1397,7 +1436,8 @@ async function ocrHeader(pageNum){
 const titleKey = l => norm(fixOcr(l)).replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
 function flaggedStarts(){ return [...state.starts.entries()].filter(([, s]) => s.unknown || s.guessed || s.inferred || s.fam === "Other").map(([p]) => p); }
 async function readPageImages(){
-  const all = state.scanned && !state.knownParts;
+  const junkPages = state.pageInfo.filter(pi => pi.junk).length;
+  const all = (state.scanned || junkPages >= Math.max(2, state.numPages * 0.1)) && !state.knownParts;
   const pages = all ? Array.from({ length: state.numPages }, (_, i) => i + 1) : flaggedStarts().filter(p => !(state.pageInfo[p-1] || {}).ocr);
   if (!pages.length) return;
   const run = ++ocrRun, box = $("ocrStatus");
@@ -1413,7 +1453,7 @@ async function readPageImages(){
       if (run !== ocrRun) return;
       const res = labelFromLines(lines), pi = state.pageInfo[pages[k] - 1];
       pi.ocr = true;
-      if (all){ pi.titleLines = lines.slice(0, 2).map(titleKey); pi.fam = res ? res.fam : undefined; pi.label = res ? res.label : undefined; }
+      if (all){ pi.titleLines = lines.slice(0, 2).map(titleKey); pi.fam = res ? res.fam : undefined; pi.label = res ? res.label : undefined; pi.also = res ? res.also : []; }
       if (res && res.fam !== "Score") found[pages[k]] = res;
     }
     let applied = 0;
@@ -1431,7 +1471,7 @@ async function readPageImages(){
     }
     refresh();
     box.className = "notice ok";
-    box.textContent = all ? `Read the page images — found ${applied} part${applied === 1 ? "" : "s"} by name.` :
+    box.textContent = all ? `${state.scanned ? "" : "This PDF's built-in text was unreadable, so I "}${state.scanned ? "Read" : "read"} the page images — found ${applied} part${applied === 1 ? "" : "s"} by name.` :
       applied ? `Re-read ${applied} unclear part name${applied === 1 ? "" : "s"} from the page images.` : "Re-checked the unclear part names on the page images — no better reading found.";
     setTimeout(() => { if (run === ocrRun) box.hidden = true; }, 8000);
   } catch (err) {
@@ -1522,8 +1562,9 @@ function refresh(){
   let extra = "";
   if (guessed.length) extra += `<p class="notice warn">${guessed.length} part name${guessed.length === 1 ? " was" : "s were"} unreadable and filled in (highlighted below): ${guessed.map(r => `p. ${r.start} ${esc(r.label)}`).join(", ")}. Check them against the page map.</p>`;
   if (long.length) extra += `<p class="notice warn">${long.map(r => `${esc(r.label)} (${r.pages} pages)`).join(", ")} ${long.length === 1 ? "is" : "are"} much longer than the other parts and may include another part. Check the page map.</p>`;
-  if (state.knownParts && !unknown) notice = `<p class="notice ok">${state.merge ? `Merged ${state.merge.items.length} files —` : ""} one part per file. Check the instruments and copy counts below.</p>`;
-  else if (state.knownParts) notice = `<p class="notice warn">${unknown} file${unknown === 1 ? "" : "s"} didn't say which instrument in the file name. Pick the instrument for ${unknown === 1 ? "it" : "each"} below.</p>`;
+  if (state.knownParts && !unknown) notice = state.merge ? `<p class="notice ok">Merged ${state.merge.items.length} files — one part per file. Check the instruments and copy counts below.</p>`
+                                                          : `<p class="notice ok">Found ${rows.filter(r => INSTR_IDS.includes(r.fam)).length} parts. Check the instruments and copy counts below.</p>`;
+  else if (state.knownParts && state.merge) notice = `<p class="notice warn">${unknown} file${unknown === 1 ? "" : "s"} didn't say which instrument in the file name. Pick the instrument for ${unknown === 1 ? "it" : "each"} below.</p>`;
   else if (state.scanned && !state.ocrDone) notice = `<p class="notice warn">This PDF is a scan with no readable text. The part names are being read from the page images — or open the page map below, check “start” on the first page of each part, and name each part yourself.</p>`;
   else if (unknown) notice = `<p class="notice warn">${unknown} section${unknown === 1 ? "" : "s"} couldn't be matched to an instrument. Pick one, or leave it as “Not a part” to skip it.</p>`;
   else notice = `<p class="notice ok">Found ${rows.filter(r => INSTR_IDS.includes(r.fam)).length} parts. Spot-check the page ranges — open the page map if anything looks merged or split wrong.</p>`;
@@ -1560,7 +1601,7 @@ $("partRows").addEventListener("change", e => {
   const st = state.starts.get(+tr.dataset.start); if (!st) return;
   const f = e.target.dataset.field;
   st.guessed = st.inferred = st.unknown = false; state.userTouched = true;
-  if (f === "label"){ st.label = e.target.value.trim() || st.label; const fam = classify(st.label); if (fam && !st.famManual) st.fam = fam; }
+  if (f === "label"){ st.label = e.target.value.trim() || st.label; st.also = /[\/&]/.test(st.label) ? classifyAll(st.label).slice(1).filter(x => INSTR_IDS.includes(x)) : []; const fam = classify(st.label); if (fam && !st.famManual) st.fam = fam; }
   if (f === "fam"){ st.fam = e.target.value; st.famManual = true; }
   if (f === "copies"){ const v = parseInt(e.target.value, 10); st.override = isNaN(v) ? null : Math.max(0, v); }
   refresh();
