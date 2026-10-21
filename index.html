@@ -100,6 +100,20 @@ input[type=range]{accent-color:var(--accent)}
 .rv .meta .flag{font-size:12px;color:var(--warn)}
 tr.jump td{animation:jump 1.6s ease-out}
 @keyframes jump{0%{background:var(--accent-soft)}100%{background:transparent}}
+.seg{display:inline-flex;flex-wrap:wrap;gap:4px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--field);margin:0 0 12px}
+.seg label{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:7px;cursor:pointer}
+.seg label:has(input:checked){background:var(--accent-soft);color:var(--accent);font-weight:600}
+.seg input{accent-color:var(--accent)}
+.rv.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.rv.off{opacity:.72}
+.rp{padding:0 10px 10px;display:flex;flex-direction:column;gap:6px;cursor:default}
+.rp .chips{display:flex;flex-wrap:wrap;gap:4px}
+.rp .chip{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;padding:2px 8px;border:1px solid var(--line-strong);border-radius:999px;cursor:pointer}
+.rp .chip:has(input:checked){border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.rp .chip input{width:13px;height:13px;margin:0}
+.rp .n{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}
+.rp input[type=number]{width:56px}
+td .link.rep{display:block;padding:2px 0;margin-top:2px;font-size:12.5px}
 .lib-list{list-style:none;margin:6px 0 0;padding:0;max-width:720px}
 .lib-list li{display:flex;align-items:center;gap:10px;padding:8px 10px 8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--field);margin-top:6px}
 .lib-list .ln{flex:1;min-width:0}
@@ -306,6 +320,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
     <div class="notice info" id="ocrStatus" hidden></div>
     <div id="scanNotice"></div>
     <ul class="missing" id="missing"></ul>
+    <input type="file" id="replaceFile" accept="application/pdf,.pdf" hidden>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Pages</th><th>Part name</th><th>Instrument</th><th>Copies</th><th>Why</th></tr></thead>
@@ -324,7 +339,11 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
 
   <section class="card" id="s4" hidden>
     <h2><span class="n">4</span>Review &amp; print</h2>
-    <p class="hint">The top of the first page of every part that will print, with its copies and students. Anything highlighted needs a look — click a part to jump to it in the list.</p>
+    <div class="seg" id="printMode" role="radiogroup" aria-label="What to print">
+      <label><input type="radio" name="pmode" value="all" checked> Print the whole set</label>
+      <label><input type="radio" name="pmode" value="some"> Reprint only some parts <span class="note">(lost music)</span></label>
+    </div>
+    <p class="hint" id="reviewHint">The top of the first page of every part that will print, with its copies and students. Anything highlighted needs a look — click a part to jump to it in the list.</p>
     <div class="review-grid" id="review"></div>
     <p class="note" id="reviewSkip"></p>
     <div class="stats" id="stats" style="margin-top:14px"></div>
@@ -1084,6 +1103,7 @@ async function openFile(file, opts = {}){
     if (state.pdf) { try { state.pdf.destroy(); } catch (e) {} }
     state.pdf = await pdfjsLib.getDocument({ data: new Uint8Array(bytes.slice(0)) }).promise;
     state.numPages = state.pdf.numPages; state.pageInfo = []; state.thumbs = new Map();
+    if (!opts.keepReprint) state.reprint = new Map();
     state.piece = null;
     if (!opts.segs && !opts.cleaned){
       try {
@@ -1125,7 +1145,7 @@ async function openFile(file, opts = {}){
       for (const s of opts.segs){
         const pi = state.pageInfo[s.start - 1] || {};
         const fam = s.fam || pi.fam || "Other";
-        state.starts.set(s.start, { label: s.fam ? s.label : (pi.label || s.label), fam, famManual: !!s.fam, also: s.also || [], override: null });
+        state.starts.set(s.start, { label: s.fam ? s.label : (pi.label || s.label), fam, famManual: !!s.fam, also: s.also || [], override: s.override ?? null });
       }
     }
     state.knownParts = !!(opts.segs && opts.segs.length);
@@ -1560,6 +1580,94 @@ async function readPageImages(){
   }
 }
 
+/* ---------------------------------------------------------------- replace one part with a better PDF */
+let replaceTarget = null;
+$("partRows").addEventListener("click", e => {
+  const b = e.target.closest("[data-replace]"); if (!b) return;
+  replaceTarget = +b.dataset.replace; $("replaceFile").click();
+});
+$("replaceFile").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f || !replaceTarget) return;
+  try { await replacePart(replaceTarget, f); } catch (err) { $("loadStatus").textContent = "Couldn't replace that part: " + (err && err.message || err); }
+  finally { setProgress(null); }
+});
+async function replacePart(start, file){
+  const { PDFDocument } = PDFLib;
+  const keys = [...state.starts.keys()].sort((a, b) => a - b), k = keys.indexOf(start);
+  const end = k + 1 < keys.length ? keys[k + 1] - 1 : state.numPages, target = state.starts.get(start);
+  $("loadStatus").textContent = `Reading ${file.name}…`;
+  const newBytes = await file.arrayBuffer();
+  let newDoc;
+  try { newDoc = await PDFDocument.load(newBytes); }
+  catch (err) { throw new Error(/encrypt/i.test(err.message) ? "that PDF is locked by the publisher" : "that file isn't a readable PDF"); }
+  // a scan gets the same cleanup as the rest of the set
+  const js = await pdfjsLib.getDocument({ data: new Uint8Array(newBytes.slice(0)) }).promise;
+  let hasText = false;
+  for (let i = 1; i <= js.numPages && !hasText; i++){ const tc = await (await js.getPage(i)).getTextContent(); hasText = tc.items.some(it => it.str && it.str.trim()); }
+  let part = newDoc, cleaned = false, dropped = 0;
+  if (!hasText){
+    const opt = cleanOpts(), out = await PDFDocument.create();
+    for (let i = 1; i <= js.numPages; i++){
+      $("loadStatus").textContent = `Cleaning up ${file.name} — page ${i} of ${js.numPages}…`; setProgress(i / js.numPages);
+      const pg = await js.getPage(i), r = await cleanPage(pg, opt);
+      if (r.blank && opt.blanks){ dropped++; continue; }
+      const b = opt.mode === "bw" ? await canvasBytes(r.canvas, "image/png") : await canvasBytes(r.canvas, "image/jpeg", 0.85);
+      const img = opt.mode === "bw" ? await out.embedPng(b) : await out.embedJpg(b);
+      out.addPage([r.ptsW, r.ptsH]).drawImage(img, { x: 0, y: 0, width: r.ptsW, height: r.ptsH });
+    }
+    if (!out.getPageCount()) throw new Error("every page of that file looked blank");
+    part = out; cleaned = true;
+  }
+  setProgress(null);
+  try { js.destroy(); } catch (err) {}
+  // rebuild the set: pages before, the new part, pages after
+  const cur = await PDFDocument.load(state.bytes), built = await PDFDocument.create();
+  const add = async (doc, idxs) => { if (!idxs.length) return; (await built.copyPages(doc, idxs)).forEach(pg => built.addPage(pg)); };
+  await add(cur, Array.from({ length: start - 1 }, (_, i) => i));
+  await add(part, part.getPageIndices());
+  await add(cur, Array.from({ length: state.numPages - end }, (_, i) => end + i));
+  const oldCount = end - start + 1, newCount = part.getPageCount(), delta = newCount - oldCount;
+  const segs = keys.map(s => {
+    const st = state.starts.get(s);
+    return { start: s > start ? s + delta : s, label: st.label, fam: st.fam === "Other" ? null : st.fam, also: st.also || [], override: s === start ? null : st.override };
+  });
+  const bytes = await built.save(), keepName = $("pieceName").value, keepReprint = state.reprint;
+  const fileName = state.fileName;
+  state.merge = null; $("mergeBox").hidden = true;
+  await openFile(new File([bytes], fileName, { type: "application/pdf" }), { segs, keepReprint: true });
+  state.reprint = keepReprint; $("pieceName").value = keepName; $("cleanActions").hidden = true;
+  $("loadStatus").textContent = `Replaced ${target.label} (${oldCount} page${oldCount === 1 ? "" : "s"}) with ${file.name} (${newCount} page${newCount === 1 ? "" : "s"}${cleaned ? ", cleaned up with your scan settings" : ""}${dropped ? `, ${dropped} blank page${dropped === 1 ? "" : "s"} dropped` : ""}). If this piece is in your library, save it again to keep the change.`;
+  refresh();
+  const tr = $("partRows").querySelector(`tr[data-start="${start}"]`); if (tr){ tr.scrollIntoView({ block: "center" }); tr.classList.add("jump"); }
+}
+
+/* ---------------------------------------------------------------- whole set or only reprints */
+state.reprintMode = false; state.reprint = new Map();
+function reprintSel(start){ if (!state.reprint.has(start)) state.reprint.set(start, { on: false, names: new Set(), blank: null }); return state.reprint.get(start); }
+function reprintCount(r){
+  const sel = state.reprint.get(r.start); if (!sel || !sel.on) return 0;
+  return r.names.filter(n => sel.names.has(n)).length + (sel.blank == null ? (r.names.length ? 0 : 1) : sel.blank);
+}
+function printRows(){
+  const { rows } = plan();
+  if (!state.reprintMode) return rows;
+  for (const r of rows){
+    const sel = state.reprint.get(r.start);
+    if (!sel || !sel.on || r.dup){ r.print = []; r.names = []; r.copies = 0; continue; }
+    const named = r.names.filter(n => sel.names.has(n));
+    const blank = sel.blank == null ? (r.names.length ? 0 : 1) : sel.blank;
+    r.names = named; r.print = named.concat(Array(Math.max(0, blank)).fill(null)); r.copies = r.print.length;
+  }
+  return rows;
+}
+document.querySelectorAll('#printMode input[name="pmode"]').forEach(el => el.addEventListener("change", () => {
+  state.reprintMode = document.querySelector('#printMode input[name="pmode"]:checked').value === "some";
+  $("reviewHint").textContent = state.reprintMode
+    ? "Tick the parts to reprint. With a roster, tick the student(s) who need a new copy — their name is printed on it. The download contains only these."
+    : "The top of the first page of every part that will print, with its copies and students. Anything highlighted needs a look — click a part to jump to it in the list.";
+  $("outName").dataset.auto = ""; $("buildStatus").textContent = ""; refresh();
+}));
+
 /* ---------------------------------------------------------------- review before printing */
 let reviewObs = null;
 async function topShot(pageNum){
@@ -1585,23 +1693,34 @@ function renderReview(rows){
     if (!en.isIntersecting) return; reviewObs.unobserve(en.target);
     topShot(+en.target.dataset.page).then(src => { const img = en.target.querySelector("img"); if (img) img.src = src; }).catch(() => {});
   }), { rootMargin: "400px" });
-  const printing = rows.filter(r => r.copies > 0);
+  const printing = state.reprintMode ? rows.filter(r => INSTR_IDS.includes(r.fam) && !r.dup) : rows.filter(r => r.copies > 0);
   const real = rows.filter(r => INSTR_IDS.includes(r.fam) && !r.dup), med = real.length ? real.map(r => r.pages).sort((a, b) => a - b)[Math.floor(real.length / 2)] : 0;
   box.innerHTML = printing.map(r => {
     const flag = r.guessed ? "Name guessed — check it" : r.inferred ? "Part number assumed — check it" : r.flag ? "Not matched to an instrument" :
                  (r.pages >= 3 && r.pages >= med * 2.5) ? `${r.pages} pages — longer than the others` : "";
     const who = r.names.length ? r.names.join(", ") : "";
-    return `<div class="rv ${flag ? "warn" : ""}" data-page="${r.start}" title="Show in the parts list">
+    let rp = "", cls = flag ? "warn" : "";
+    if (state.reprintMode){
+      const sel = reprintSel(r.start), blank = sel.blank == null ? (r.names.length ? 0 : 1) : sel.blank;
+      cls = sel.on ? "sel" : "off";
+      rp = `<div class="rp">
+        <label class="chk"><input type="checkbox" data-rp-on="${r.start}" ${sel.on ? "checked" : ""}> <b>Reprint</b></label>
+        ${r.names.length ? `<div class="chips">${r.names.map(n => `<label class="chip"><input type="checkbox" data-rp-name="${r.start}" value="${esc(n)}" ${sel.names.has(n) ? "checked" : ""}>${esc(n)}</label>`).join("")}</div>` : ""}
+        <label class="n">${r.names.length ? "Extra copies without a name" : "Copies"} <input type="number" min="0" max="50" data-rp-blank="${r.start}" value="${blank}"></label>
+      </div>`;
+    }
+    return `<div class="rv ${cls}" data-page="${r.start}" title="Show in the parts list">
       <div class="shot"><img alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="><button type="button" class="zoom" data-zoom="${r.start}" title="See the whole page">Page</button></div>
       <div class="meta"><b>${esc(r.label)}</b>
-        <div class="ln"><span>${r.start === r.end ? "p. " + r.start : `pp. ${r.start}–${r.end}`} · ${r.pages} page${r.pages === 1 ? "" : "s"}</span><span class="cp">× ${r.copies}</span></div>
-        ${who ? `<div class="who">${esc(who)}</div>` : ""}${flag ? `<div class="flag">${esc(flag)}</div>` : ""}</div></div>`;
+        <div class="ln"><span>${r.start === r.end ? "p. " + r.start : `pp. ${r.start}–${r.end}`} · ${r.pages} page${r.pages === 1 ? "" : "s"}</span><span class="cp">× ${state.reprintMode ? reprintCount(r) : r.copies}</span></div>
+        ${who && !state.reprintMode ? `<div class="who">${esc(who)}</div>` : ""}${flag ? `<div class="flag">${esc(flag)}</div>` : ""}</div>${rp}</div>`;
   }).join("");
   box.querySelectorAll(".rv").forEach(el => {
     const cached = state.thumbs.get(+el.dataset.page);
     if (cached) cached.then(src => { el.querySelector("img").src = src; }); else reviewObs.observe(el);
   });
   const skipped = rows.filter(r => r.copies === 0 && INSTR_IDS.includes(r.fam) && !r.dup).map(r => r.label);
+  if (state.reprintMode){ $("reviewSkip").textContent = ""; return; }
   $("reviewSkip").textContent = skipped.length ? `Not printing (no players): ${skipped.join(", ")}`.replace(/\.?$/, ".") : "";
 }
 async function showPage(num, caption){
@@ -1613,7 +1732,16 @@ async function showPage(num, caption){
   lb.addEventListener("click", () => lb.remove()); document.addEventListener("keydown", function k(ev){ if (ev.key === "Escape"){ lb.remove(); document.removeEventListener("keydown", k); } });
   document.body.appendChild(lb);
 }
+$("review").addEventListener("change", e => {
+  const t = e.target, start = +(t.dataset.rpOn || t.dataset.rpName || t.dataset.rpBlank); if (!start) return;
+  const sel = reprintSel(start);
+  if (t.dataset.rpOn) sel.on = t.checked;
+  if (t.dataset.rpName){ if (t.checked){ sel.names.add(t.value); sel.on = true; } else sel.names.delete(t.value); }
+  if (t.dataset.rpBlank){ sel.blank = Math.max(0, parseInt(t.value, 10) || 0); if (sel.blank > 0) sel.on = true; }
+  refresh();
+});
 $("review").addEventListener("click", e => {
+  if (e.target.closest(".rp")) return;
   const z = e.target.closest("[data-zoom]");
   if (z){ e.stopPropagation(); const card = z.closest(".rv"); showPage(+z.dataset.zoom, `Page ${z.dataset.zoom} · ${card.querySelector("b").textContent}`); return; }
   const card = e.target.closest(".rv"); if (!card) return;
@@ -1804,7 +1932,7 @@ function refresh(){
     const pages = r.start === r.end ? `${r.start}` : `${r.start}–${r.end}`;
     const edited = r.override !== null && r.override !== undefined;
     return `<tr class="${r.copies === 0 ? "zero" : ""} ${r.flag || r.guessed || r.inferred ? "flag" : ""}" data-start="${r.start}">
-      <td><span class="sw" style="background:${r.idx % 2 ? "var(--band-b)" : "var(--band-a)"}"></span>${pages}<div class="note">${r.pages} pg</div></td>
+      <td><span class="sw" style="background:${r.idx % 2 ? "var(--band-b)" : "var(--band-a)"}"></span>${pages}<div class="note">${r.pages} pg</div>${r.label !== "Front matter" ? `<button type="button" class="link rep" data-replace="${r.start}" title="Swap in a better PDF of this part">Replace…</button>` : ""}</td>
       <td><input type="text" data-field="label" value="${esc(r.label)}"></td>
       <td><select data-field="fam">${famOptions(r.fam)}</select></td>
       <td><div class="copies"><input type="number" min="0" max="500" data-field="copies" value="${r.copies}" class="${edited ? "edited" : ""}">
@@ -1814,8 +1942,9 @@ function refresh(){
   paintPageMap();
   renderReview(rows);
   // stats
-  const copies = rows.reduce((s, r) => s + r.copies, 0);
-  const pages = rows.reduce((s, r) => s + r.copies * (r.pages + (S().duplex && r.pages % 2 ? 1 : 0)), 0);
+  const pr = state.reprintMode ? printRows() : rows;
+  const copies = pr.reduce((s, r) => s + r.copies, 0);
+  const pages = pr.reduce((s, r) => s + r.copies * (r.pages + (S().duplex && r.pages % 2 ? 1 : 0)), 0);
   const sheets = S().duplex ? pages / 2 : pages;
   $("stats").innerHTML =
     `<div class="stat"><b>${copies}</b><span>part copies</span></div>
@@ -1823,7 +1952,7 @@ function refresh(){
      <div class="stat"><b>${Math.ceil(sheets)}</b><span>sheets of paper${S().duplex ? " (double-sided)" : ""}</span></div>`;
   $("buildBtn").disabled = pages === 0;
   const n = $("outName");
-  if (n.dataset.auto !== "0") n.value = state.fileName.replace(/\.pdf$/i, "") + " - " + saved.current + " - PRINT.pdf";
+  if (n.dataset.auto !== "0") n.value = ((($("pieceName").value || "").trim().replace(/^Untitled piece$/, "")) || state.fileName.replace(/\.pdf$/i, "")) + " - " + saved.current + (state.reprintMode ? " - REPRINT.pdf" : " - PRINT.pdf");
 }
 $("outName").addEventListener("input", e => { e.target.dataset.auto = "0"; });
 
@@ -1862,7 +1991,7 @@ $("buildBtn").addEventListener("click", async () => {
     const out = await PDFDocument.create();
     let index = 0;
     const insertRef = (ref, node) => { const parent = out.catalog.insertLeafNode(ref, index++); node.setParent(parent); };
-    const { rows } = plan();
+    const rows = printRows();
     let font = null;
     const safe = s => {
       try { font.encodeText(s); return s; }

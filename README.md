@@ -26,6 +26,22 @@ files are uploaded, nothing to install.
    Highlighted cards need a look; **Page** shows the whole page, and clicking a card jumps to
    it in the parts list. Then download the PDF and send it to the copier as one job, single copy.
 
+### A student lost their music
+
+In step 4, switch to **Reprint only some parts** and tick **Reprint** on the part(s) you need.
+With a roster loaded, tick the student(s) who lost music — their copy comes out with their name
+on it, exactly as before. **Extra copies without a name** (or **Copies**, without a roster) adds
+plain copies. The download (named "… - REPRINT.pdf") contains only those parts. Switch back to
+**Print the whole set** for a full print.
+
+### Replacing a bad scan of one part
+
+In the parts list (step 3), click **Replace…** under a part's pages and choose a PDF of just that
+part — a better scan, or a clean digital copy. It takes the place of that part's pages only; the
+part's name, instrument and copies stay, and every other part is untouched. A scanned replacement
+is cleaned up with your current scan-cleanup settings. If the piece is in your library, click
+**Save to my library** again to keep the new pages.
+
 ### Saving pieces
 
 Under **Keep this piece** (step 4):
