@@ -29,7 +29,7 @@ files are uploaded, nothing to install.
 ### Less scrolling
 
 Click any step's heading to fold it down to one line; the folded heading shows a summary
-(players, file, parts, copies). **Collapse all / Expand all** sit above step 1, and your folds are
+(players, file, parts, copies), and folded step 1 keeps an ensemble dropdown so you can switch classes without opening it. **Collapse all / Expand all** sit above step 1, and your folds are
 remembered. Loading a PDF folds steps 1–2 automatically (step 2 stays open for a scan, so you can
 clean it up); opening a saved piece also folds step 3 and goes straight to printing. **Go to print ↓**
 in the corner jumps to the download button from anywhere.

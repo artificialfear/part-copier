@@ -46,6 +46,9 @@ section.card.collapsed{padding-top:12px;padding-bottom:12px}
 section.card.collapsed > :not(h2.fold){display:none !important}
 section.card.collapsed h2.fold{margin-bottom:-6px}
 section.card.collapsed h2.fold .sum{opacity:1}
+h2.fold .quick{display:none;flex:none;max-width:45%;font-size:13.5px;font-weight:500;padding:4px 28px 4px 10px;cursor:pointer}
+section.card.collapsed h2.fold .quick{display:block}
+@media (max-width:560px){ section.card.collapsed #sum1{display:none} h2.fold .quick{max-width:55%;margin-left:auto} }
 section.card.collapsed h2.fold .chev{transform:rotate(-45deg);margin:0 6px 0 0}
 .fold-bar{display:flex;justify-content:flex-end;gap:14px;margin-top:10px;font-size:13px}
 .to-print{position:fixed;right:18px;bottom:18px;z-index:40;box-shadow:0 6px 20px rgba(0,0,0,.35)}
@@ -213,7 +216,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
 <main>
   <div class="fold-bar"><button type="button" class="link" id="foldAll">Collapse all</button><button type="button" class="link" id="unfoldAll">Expand all</button></div>
   <section class="card" id="s1">
-    <h2 class="fold" data-fold="s1" role="button" tabindex="0" aria-expanded="true"><span class="n">1</span>Your ensemble<span class="sum" id="sum1"></span><span class="chev" aria-hidden="true"></span></h2>
+    <h2 class="fold" data-fold="s1" role="button" tabindex="0" aria-expanded="true"><span class="n">1</span>Your ensemble<span class="sum" id="sum1"></span><select id="ensQuick" class="quick" aria-label="Switch ensemble"></select><span class="chev" aria-hidden="true"></span></h2>
     <p class="hint" id="ensHint">Enter how many students play each instrument, or import a roster to print a named copy for each student. Everything is saved in this browser, so set up each ensemble once.</p>
     <div class="row">
       <select id="ensSelect" aria-label="Ensemble"></select>
@@ -801,7 +804,8 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[ch]));
 
 function renderEnsemble(){
-  $("ensSelect").innerHTML = Object.keys(saved.ensembles).map(n => `<option ${n === saved.current ? "selected" : ""}>${esc(n)}</option>`).join("");
+  $("ensSelect").innerHTML = $("ensQuick").innerHTML = Object.keys(saved.ensembles).map(n => `<option ${n === saved.current ? "selected" : ""}>${esc(n)}</option>`).join("");
+  $("ensQuick").value = saved.current;
   $("countGrid").innerHTML = SECTIONS.map(([sec, list]) =>
     `<div class="sec"><div class="sec-title">${esc(sec)}</div><div class="tiles">` +
     list.map(([id, lab]) => {
@@ -894,7 +898,7 @@ $("rosterBox").addEventListener("change", async e => {
 function renderTotal(){
   const t = INSTR_IDS.reduce((s, id) => s + (counts()[id] || 0), 0);
   $("countTotal").textContent = `${t} player${t === 1 ? "" : "s"} in ${saved.current}`;
-  if (typeof updateSummaries === "function") $("sum1").textContent = $("countTotal").textContent;
+  if (typeof updateSummaries === "function") $("sum1").textContent = $("countTotal").textContent.replace(/ in .*$/, "");
 }
 function setCount(inst, v){
   v = Math.max(0, Math.min(200, v || 0));
@@ -914,6 +918,9 @@ $("countGrid").addEventListener("click", e => {
   const v = (counts()[inst] || 0) + parseInt(b.dataset.step, 10);
   input.value = Math.max(0, v); setCount(inst, v);
 });
+// the folded step 1 keeps a working ensemble picker in its heading
+["click", "keydown", "mousedown"].forEach(t => $("ensQuick").addEventListener(t, e => e.stopPropagation()));
+$("ensQuick").addEventListener("change", e => { $("ensSelect").value = e.target.value; $("ensSelect").dispatchEvent(new Event("change")); });
 $("ensSelect").addEventListener("change", e => { saved.current = e.target.value; rosterOpen = false; persist(); renderEnsemble(); refresh(); });
 $("ensNew").addEventListener("click", () => {
   const name = (prompt("Name for the new ensemble (e.g. 7th Grade Band):") || "").trim();
@@ -1942,9 +1949,9 @@ $("foldAll").addEventListener("click", () => ["s1", "s2", "s3", "s4"].forEach(id
 $("unfoldAll").addEventListener("click", () => ["s1", "s2", "s3", "s4"].forEach(id => setFold(id, false)));
 { const f = foldState(); for (const id of ["s1", "s2", "s3", "s4"]) if (f[id]) setFold(id, true, false); }
 // anything that jumps to a control inside a folded step opens that step first
-document.addEventListener("focusin", e => { const sec = e.target.closest && e.target.closest("section.card.collapsed"); if (sec && !e.target.matches("h2.fold")) setFold(sec.id, false); });
+document.addEventListener("focusin", e => { const sec = e.target.closest && e.target.closest("section.card.collapsed"); if (sec && !e.target.closest("h2.fold")) setFold(sec.id, false); });
 function updateSummaries(sum){
-  $("sum1").textContent = $("countTotal").textContent || "";
+  $("sum1").textContent = ($("countTotal").textContent || "").replace(/ in .*$/, "");
   $("sum2").textContent = state.numPages ? `${state.fileName} · ${state.numPages} page${state.numPages === 1 ? "" : "s"}` : "";
   if (sum){
     $("sum3").textContent = `${sum.parts} part${sum.parts === 1 ? "" : "s"}${sum.flags ? ` · ${sum.flags} need${sum.flags === 1 ? "s" : ""} a look` : ""}`;
