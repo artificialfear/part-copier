@@ -26,6 +26,14 @@ files are uploaded, nothing to install.
    Highlighted cards need a look; **Page** shows the whole page, and clicking a card jumps to
    it in the parts list. Then download the PDF and send it to the copier as one job, single copy.
 
+### Less scrolling
+
+Click any step's heading to fold it down to one line; the folded heading shows a summary
+(players, file, parts, copies). **Collapse all / Expand all** sit above step 1, and your folds are
+remembered. Loading a PDF folds steps 1–2 automatically (step 2 stays open for a scan, so you can
+clean it up); opening a saved piece also folds step 3 and goes straight to printing. **Go to print ↓**
+in the corner jumps to the download button from anywhere.
+
 ### A student lost their music
 
 In step 4, switch to **Reprint only some parts** and tick **Reprint** on the part(s) you need.
