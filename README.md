@@ -21,7 +21,22 @@ files are uploaded, nothing to install.
 3. **Check the parts** — confirm page ranges and copies. Type over any copy count
    to set it by hand. If an instrument has no part in the set (e.g. bassoon),
    choose which part those players get.
-4. **Print** — download the PDF and send it to the copier as one job, single copy.
+4. **Review & print** — every part that will print is shown as a close-up of the top of its
+   first page (where the part name is printed), with its page count, copies and students.
+   Highlighted cards need a look; **Page** shows the whole page, and clicking a card jumps to
+   it in the parts list. Then download the PDF and send it to the copier as one job, single copy.
+
+### Saving pieces
+
+Under **Keep this piece** (step 4):
+
+- **Save to my library** stores the piece — the pages (cleaned, if you cleaned them) and the
+  parts exactly as you confirmed them — in this browser. It appears under **Your saved pieces**
+  in step 2: **Open** loads it in a couple of seconds with nothing to re-check, ready for any
+  ensemble.
+- **Download piece file** saves a normal PDF with the part list built in. Open it in Part Copier
+  on any computer, or give it to another director who owns the piece, and the parts load ready
+  to print — no detection, no fixing. The library lives in one browser; piece files go anywhere.
 
 ### Optional: clean up a scanned set
 

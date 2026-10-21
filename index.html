@@ -80,6 +80,33 @@ input[type=range]{accent-color:var(--accent)}
 .merge-list .mi-meta{color:var(--muted);font-size:12.5px;flex:none}
 .merge-list .mi-meta.unk{color:var(--warn)}
 .merge-list button{padding:3px 9px;font-size:13px}
+.review-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:4px}
+.rv{border:1px solid var(--line);border-radius:10px;background:var(--field);overflow:hidden;cursor:pointer;display:flex;flex-direction:column}
+.rv:hover{border-color:var(--line-strong)}
+.rv.warn{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
+.rv .shot{background:#fff;aspect-ratio:560/235;overflow:hidden;border-bottom:1px solid var(--line);position:relative}
+.rv .zoom{position:absolute;right:6px;bottom:6px;padding:2px 8px;font-size:12px;border-radius:6px;opacity:.85}
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.72);display:grid;place-items:center;z-index:50;padding:16px}
+.lightbox img{max-width:min(860px,100%);max-height:calc(100vh - 80px);background:#fff;border-radius:6px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+.lightbox .cap{color:#fff;margin-top:8px;text-align:center;font-size:14px}
+.rv .shot img{width:100%;display:block;min-height:100%;position:relative;z-index:1}
+.rv .shot::before{content:"Loading preview…";position:absolute;left:10px;top:10px;font-size:12px;color:#888;z-index:0}
+.rv .zoom{z-index:2}
+.rv .meta{padding:8px 10px;display:flex;flex-direction:column;gap:3px}
+.rv .meta b{font-size:14px}
+.rv .meta .ln{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted)}
+.rv .meta .cp{font-weight:700;color:var(--ink)}
+.rv .meta .who{font-size:12px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.rv .meta .flag{font-size:12px;color:var(--warn)}
+tr.jump td{animation:jump 1.6s ease-out}
+@keyframes jump{0%{background:var(--accent-soft)}100%{background:transparent}}
+.lib-list{list-style:none;margin:6px 0 0;padding:0;max-width:720px}
+.lib-list li{display:flex;align-items:center;gap:10px;padding:8px 10px 8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--field);margin-top:6px}
+.lib-list .ln{flex:1;min-width:0}
+.lib-list .ln b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lib-list .ln span{font-size:12.5px;color:var(--muted)}
+.lib-list button{padding:5px 10px;font-size:13px}
+.keep{margin-top:18px;border-top:1px solid var(--line);padding-top:6px}
 .sec{margin-top:14px}
 .sec-title{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:8px}
@@ -228,6 +255,10 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
       <input type="file" id="file" accept="application/pdf,.pdf" multiple hidden>
     </label>
     <div class="status" id="loadStatus"></div>
+    <div id="libBox" hidden>
+      <div class="rules-group" style="margin-top:14px">Your saved pieces</div>
+      <ul class="lib-list" id="libList"></ul>
+    </div>
     <div class="progress" id="progress" hidden><div></div></div>
 
     <details class="settings" id="mergeBox" hidden>
@@ -292,13 +323,27 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
   </section>
 
   <section class="card" id="s4" hidden>
-    <h2><span class="n">4</span>Print</h2>
-    <div class="stats" id="stats"></div>
+    <h2><span class="n">4</span>Review &amp; print</h2>
+    <p class="hint">The top of the first page of every part that will print, with its copies and students. Anything highlighted needs a look — click a part to jump to it in the list.</p>
+    <div class="review-grid" id="review"></div>
+    <p class="note" id="reviewSkip"></p>
+    <div class="stats" id="stats" style="margin-top:14px"></div>
     <div class="row">
       <input type="text" id="outName" style="flex:1;min-width:240px" aria-label="File name">
       <button class="primary" id="buildBtn">Download print PDF</button>
     </div>
     <div class="status" id="buildStatus"></div>
+
+    <div class="keep">
+      <div class="rules-group">Keep this piece</div>
+      <p class="hint" style="margin:0 0 8px">Save the parts as you've confirmed them, so next time — another ensemble, next year — you just pick the piece and print. Saving also keeps the cleaned-up pages.</p>
+      <div class="row">
+        <input type="text" id="pieceName" style="flex:1;min-width:200px" aria-label="Piece name" placeholder="Piece name">
+        <button type="button" id="pieceSave">Save to my library</button>
+        <button type="button" id="pieceExport" title="A PDF with the part list built in — share it with another director or open it on another computer">Download piece file</button>
+      </div>
+      <div class="status" id="pieceStatus"></div>
+    </div>
   </section>
 </main>
 
@@ -340,6 +385,7 @@ const RX = [
   [/\b(baritone|euphonium)\b[^\n]{0,14}(t\.?\s?c\.?|treble)/, "Euphonium TC"],
   [/\b(baritone|euphonium)\b/, "Euphonium BC"],
   [/\btrombones?\b/, "Trombone"], [/\btubas?\b/, "Tuba"],
+  [/\bkeyboard\s+percussion\b/, "Percussion"],
   [/\b(mallets?|bells|glockenspiel|xylophone|marimba|vibraphone|chimes)\b/, "Percussion"],
   [/\btimpani\b/, "Percussion"],
   [/\b(percussion|snare|bass drum|auxiliary|drum ?set|drums?)\b/, "Percussion"],
@@ -409,7 +455,7 @@ function canonLabel(fam, text){
   const t = norm(fixOcr(stripAlt(text)));
   let base = CANON[fam] || fam;
   if (fam === "Percussion"){
-    if (/\b(mallets?|bells|marimba|xylophone|vibraphone|glockenspiel|chimes)\b/.test(t)) base = "Mallet Percussion";
+    if (/\b(keyboard percussion|mallets?|bells|marimba|xylophone|vibraphone|glockenspiel|chimes)\b/.test(t)) base = "Mallet Percussion";
     else if (/\btimpani\b/.test(t)) base = "Timpani";
   }
   if ((fam === "Euphonium BC" || fam === "Euphonium TC") && /\bbaritone\b/.test(t) && !/\beuphonium\b/.test(t)) base = fam === "Euphonium BC" ? "Baritone B.C." : "Baritone T.C.";
@@ -1037,7 +1083,18 @@ async function openFile(file, opts = {}){
     state.bytes = bytes; state.fileName = file.name;
     if (state.pdf) { try { state.pdf.destroy(); } catch (e) {} }
     state.pdf = await pdfjsLib.getDocument({ data: new Uint8Array(bytes.slice(0)) }).promise;
-    state.numPages = state.pdf.numPages; state.pageInfo = [];
+    state.numPages = state.pdf.numPages; state.pageInfo = []; state.thumbs = new Map();
+    state.piece = null;
+    if (!opts.segs && !opts.cleaned){
+      try {
+        const meta = await state.pdf.getMetadata(), raw = meta && meta.info && meta.info.Custom && meta.info.Custom.PartCopierMap;
+        const map = raw ? JSON.parse(raw) : null;
+        if (map && map.v === 1 && map.numPages === state.numPages && Array.isArray(map.segs) && map.segs.length){
+          opts = Object.assign({}, opts, { segs: map.segs });
+          state.piece = { name: map.name || file.name.replace(/\.pdf$/i, "") };
+        }
+      } catch (e) {}
+    }
     let withText = 0;
     for (let i = 1; i <= state.numPages; i++){
       setProgress(i / state.numPages);
@@ -1068,13 +1125,16 @@ async function openFile(file, opts = {}){
       for (const s of opts.segs){
         const pi = state.pageInfo[s.start - 1] || {};
         const fam = s.fam || pi.fam || "Other";
-        state.starts.set(s.start, { label: s.fam ? s.label : (pi.label || s.label), fam, famManual: !!s.fam, override: null });
+        state.starts.set(s.start, { label: s.fam ? s.label : (pi.label || s.label), fam, famManual: !!s.fam, also: s.also || [], override: null });
       }
     }
     state.knownParts = !!(opts.segs && opts.segs.length);
     state.ocrDone = false; state.userTouched = false; ocrRun++; $("ocrStatus").hidden = true;
     $("outName").value = file.name.replace(/\.pdf$/i, "") + " - " + saved.current + " - PRINT.pdf";
-    $("loadStatus").textContent = `${file.name} — ${state.numPages} page${state.numPages === 1 ? "" : "s"}`;
+    $("loadStatus").textContent = state.piece ? `“${state.piece.name}” — ${state.numPages} pages, parts as you saved them.`
+                                              : `${file.name} — ${state.numPages} page${state.numPages === 1 ? "" : "s"}`;
+    $("pieceName").value = state.piece ? state.piece.name : pieceNameFrom(opts.merged || file.name);
+    $("pieceStatus").textContent = "";
     $("s3").hidden = $("s4").hidden = false;
     buildPageMap();
     $("mapBox").open = state.scanned;
@@ -1098,18 +1158,23 @@ function detectStarts(){
   info.forEach(pi => { if (pi.titleLines && pi.titleLines[0]) tally[pi.titleLines[0]] = (tally[pi.titleLines[0]] || 0) + 1; });
   let title = null, cnt = 0;
   for (const [k, v] of Object.entries(tally)) if (v > cnt && k.length >= 3){ title = k; cnt = v; }
-  const useTitle = !!title && cnt >= 3 && cnt / n >= 0.3 && cnt / n < 0.95 && !classify(title);
+  const titleOK = !!title && cnt >= 3 && cnt / n >= 0.3 && !classify(title);
+  const useTitle = titleOK && cnt / n < 0.95;
+  // title on (almost) every page: one-page parts, or a title repeated on continuation pages —
+  // a new name starts a part, and so does an unreadable page (rather than being merged into the last part)
+  const titleEvery = titleOK && !useTitle;
   let cur = null;
   info.forEach((pi, i) => {
     const page = i + 1, hasTitle = useTitle && (pi.titleLines || []).includes(title);
     const sameLabel = pi.fam && cur && cur.label.toLowerCase() === pi.label.toLowerCase();
     let start;
     if (!cur) start = true;
-    else if (useTitle) start = (hasTitle && !sameLabel) || (!hasTitle && pi.fam && pi.fam !== cur.fam && pi.fam !== "Score");
+    else if (useTitle) start = hasTitle || (pi.fam && pi.fam !== cur.fam && pi.fam !== "Score");
+    else if (titleEvery) start = !pi.fam || !sameLabel;
     else start = !!pi.fam && !sameLabel;
     if (!start) return;
     if (pi.fam) cur = { label: pi.label, fam: pi.fam, also: pi.also || [], override: null };
-    else if (!cur && !useTitle) cur = { label: state.scanned ? "Part 1" : "Front matter", fam: "Other", override: null };
+    else if (!cur && !useTitle && !titleEvery) cur = { label: state.scanned ? "Part 1" : "Front matter", fam: "Other", override: null };
     else cur = { label: `Unknown part (p. ${page})`, fam: "Other", override: null, unknown: true };
     state.starts.set(page, cur);
   });
@@ -1119,6 +1184,15 @@ function detectStarts(){
 const GUESS_ORDER = ["Flute","Oboe","Bassoon","Clarinet","Bass Clarinet","Alto Sax","Tenor Sax","Bari Sax","Trumpet","Horn","Trombone","Euphonium BC","Euphonium TC","Tuba","String Bass","Piano","Percussion"];
 function inferNames(){
   const segs = [...state.starts.entries()].sort((a, b) => a[0] - b[0]);
+  // 0) two parts in a row with the same name (a misread number): the second is the next number
+  for (let i = 1; i < segs.length; i++){
+    const a = segs[i - 1][1], b = segs[i][1];
+    if (!INSTR_IDS.includes(b.fam) || b.fam !== a.fam || a.label.toLowerCase() !== b.label.toLowerCase()) continue;
+    const n = partNums(a.label);
+    b.label = n.length === 1 && n[0] < 4 ? b.label.replace(/\b[1-4]\b(?!.*\b[1-4]\b)/, String(n[0] + 1)) : (CANON[b.fam] || b.fam) + " 2";
+    if (!n.length) a.label = (CANON[a.fam] || a.fam) + " 1";
+    b.inferred = true;
+  }
   // 1) "Clarinet" next to "Clarinet 2" and "Clarinet 3" is almost certainly Clarinet 1
   const byFam = {};
   segs.forEach(([pg, s]) => { if (INSTR_IDS.includes(s.fam)) (byFam[s.fam] = byFam[s.fam] || []).push(s); });
@@ -1138,6 +1212,11 @@ function inferNames(){
     const run = segs.slice(i, j + 1).map(x => x[1]);
     const A = i > 0 ? segs[i - 1][1] : null, B = j + 1 < segs.length ? segs[j + 1][1] : null;
     const iA = A ? GUESS_ORDER.indexOf(A.fam) : -1, iB = B ? GUESS_ORDER.indexOf(B.fam) : GUESS_ORDER.length;
+    if (A && B && A.fam === B.fam && run.length === 1 && INSTR_IDS.includes(A.fam)){
+      const n = partNums(A.label);
+      run[0].fam = A.fam; run[0].label = (CANON[A.fam] || A.fam) + (n.length === 1 && n[0] < 4 ? " " + (n[0] + 1) : "");
+      run[0].guessed = true; run[0].unknown = false; i = j; continue;
+    }
     if ((A && iA < 0) || (B && iB < 0) || iB <= iA){ i = j; continue; }
     const fams = GUESS_ORDER.slice(iA + 1, iB).filter(f => !present.has(f));
     let picks = null;
@@ -1481,6 +1560,157 @@ async function readPageImages(){
   }
 }
 
+/* ---------------------------------------------------------------- review before printing */
+let reviewObs = null;
+async function topShot(pageNum){
+  if (state.thumbs.has(pageNum)) return state.thumbs.get(pageNum);
+  const job = (async () => {
+    const page = await state.pdf.getPage(pageNum);
+    const vp1 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: 1000 / vp1.width });
+    const full = newCanvas(vp.width, vp.height), fx = ctx2d(full);
+    fx.fillStyle = "#fff"; fx.fillRect(0, 0, full.width, full.height);
+    await page.render({ canvasContext: fx, viewport: vp }).promise;
+    // the part name is almost always in the top-left corner: show that area large enough to read
+    const w = Math.round(full.width * 0.52), h = Math.round(w * 0.42), top = newCanvas(560, Math.round(560 * h / w));
+    const tx = ctx2d(top); tx.imageSmoothingQuality = "high"; tx.drawImage(full, 0, 0, w, h, 0, 0, top.width, top.height);
+    return top.toDataURL("image/jpeg", 0.85);
+  })();
+  state.thumbs.set(pageNum, job);
+  return job;
+}
+function renderReview(rows){
+  const box = $("review");
+  if (reviewObs) reviewObs.disconnect();
+  reviewObs = new IntersectionObserver(es => es.forEach(en => {
+    if (!en.isIntersecting) return; reviewObs.unobserve(en.target);
+    topShot(+en.target.dataset.page).then(src => { const img = en.target.querySelector("img"); if (img) img.src = src; }).catch(() => {});
+  }), { rootMargin: "400px" });
+  const printing = rows.filter(r => r.copies > 0);
+  const real = rows.filter(r => INSTR_IDS.includes(r.fam) && !r.dup), med = real.length ? real.map(r => r.pages).sort((a, b) => a - b)[Math.floor(real.length / 2)] : 0;
+  box.innerHTML = printing.map(r => {
+    const flag = r.guessed ? "Name guessed — check it" : r.inferred ? "Part number assumed — check it" : r.flag ? "Not matched to an instrument" :
+                 (r.pages >= 3 && r.pages >= med * 2.5) ? `${r.pages} pages — longer than the others` : "";
+    const who = r.names.length ? r.names.join(", ") : "";
+    return `<div class="rv ${flag ? "warn" : ""}" data-page="${r.start}" title="Show in the parts list">
+      <div class="shot"><img alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="><button type="button" class="zoom" data-zoom="${r.start}" title="See the whole page">Page</button></div>
+      <div class="meta"><b>${esc(r.label)}</b>
+        <div class="ln"><span>${r.start === r.end ? "p. " + r.start : `pp. ${r.start}–${r.end}`} · ${r.pages} page${r.pages === 1 ? "" : "s"}</span><span class="cp">× ${r.copies}</span></div>
+        ${who ? `<div class="who">${esc(who)}</div>` : ""}${flag ? `<div class="flag">${esc(flag)}</div>` : ""}</div></div>`;
+  }).join("");
+  box.querySelectorAll(".rv").forEach(el => {
+    const cached = state.thumbs.get(+el.dataset.page);
+    if (cached) cached.then(src => { el.querySelector("img").src = src; }); else reviewObs.observe(el);
+  });
+  const skipped = rows.filter(r => r.copies === 0 && INSTR_IDS.includes(r.fam) && !r.dup).map(r => r.label);
+  $("reviewSkip").textContent = skipped.length ? `Not printing (no players): ${skipped.join(", ")}`.replace(/\.?$/, ".") : "";
+}
+async function showPage(num, caption){
+  const page = await state.pdf.getPage(num), vp1 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: 1100 / vp1.width });
+  const c = newCanvas(vp.width, vp.height), x = ctx2d(c); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: x, viewport: vp }).promise;
+  const lb = document.createElement("div"); lb.className = "lightbox"; lb.title = "Click to close";
+  lb.innerHTML = `<div><img alt="Page ${num}" src="${c.toDataURL("image/jpeg", 0.85)}"><div class="cap">${esc(caption)} — click anywhere to close</div></div>`;
+  lb.addEventListener("click", () => lb.remove()); document.addEventListener("keydown", function k(ev){ if (ev.key === "Escape"){ lb.remove(); document.removeEventListener("keydown", k); } });
+  document.body.appendChild(lb);
+}
+$("review").addEventListener("click", e => {
+  const z = e.target.closest("[data-zoom]");
+  if (z){ e.stopPropagation(); const card = z.closest(".rv"); showPage(+z.dataset.zoom, `Page ${z.dataset.zoom} · ${card.querySelector("b").textContent}`); return; }
+  const card = e.target.closest(".rv"); if (!card) return;
+  const tr = $("partRows").querySelector(`tr[data-start="${card.dataset.page}"]`); if (!tr) return;
+  tr.scrollIntoView({ behavior: "smooth", block: "center" }); tr.classList.remove("jump"); void tr.offsetWidth; tr.classList.add("jump");
+});
+
+/* ---------------------------------------------------------------- piece library & piece files */
+function pieceNameFrom(name){
+  let s = String(name || "").replace(/\.pdf$/i, "").replace(/\s*\((cleaned|part copier)\)\s*/ig, " ").replace(/[_]+/g, " ");
+  for (let k = 0; k < 3; k++) s = s.replace(/[\s\-–]*\b(full set|parts?|set|full score|score|print|cleaned|scan(ned)?)\s*$/i, "");
+  s = s.replace(/\s+/g, " ").trim();
+  return s ? s.replace(/\b([a-z])/g, (m, c) => c.toUpperCase()) : "Untitled piece";
+}
+function currentMap(){
+  const segs = [...state.starts.entries()].sort((a, b) => a[0] - b[0])
+    .map(([start, s]) => ({ start, label: s.label, fam: s.fam === "Other" ? null : s.fam, also: s.also || [] }));
+  return { v: 1, name: ($("pieceName").value || "").trim() || pieceNameFrom(state.fileName), numPages: state.numPages, segs, saved: new Date().toISOString() };
+}
+async function pieceBytes(){
+  const { PDFDocument, PDFName, PDFHexString } = PDFLib;
+  const src = state.cleanInfo ? state.cleanInfo.bytes : state.bytes;
+  const doc = await PDFDocument.load(src, { updateMetadata: false });
+  const map = currentMap();
+  doc.getInfoDict().set(PDFName.of("PartCopierMap"), PDFHexString.fromText(JSON.stringify(map)));
+  doc.setTitle(map.name);
+  return { bytes: await doc.save(), map };
+}
+function libDb(){
+  return new Promise((res, rej) => {
+    if (!window.indexedDB) return rej(new Error("this browser can't store files"));
+    const r = indexedDB.open("partCopierLibrary", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("pieces", { keyPath: "id" });
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error || new Error("storage unavailable"));
+  });
+}
+async function libTx(mode, fn){
+  const db = await libDb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("pieces", mode), store = tx.objectStore("pieces"); let out;
+    const req = fn(store); if (req) req.onsuccess = () => { out = req.result; };
+    tx.oncomplete = () => { db.close(); res(out); }; tx.onerror = tx.onabort = () => { db.close(); rej(tx.error || new Error("storage failed")); };
+  });
+}
+async function renderLibrary(){
+  let list = [];
+  try { list = await libTx("readonly", s => s.getAll()) || []; } catch (e) { $("libBox").hidden = true; return; }
+  list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  $("libBox").hidden = !list.length;
+  $("libList").innerHTML = list.map(p => `<li>
+    <div class="ln"><b>${esc(p.name)}</b><span>${p.parts} parts · ${p.pages} pages · saved ${esc(new Date(p.savedAt).toLocaleDateString())}</span></div>
+    <button type="button" class="primary" data-lib-open="${esc(p.id)}">Open</button>
+    <button type="button" data-lib-dl="${esc(p.id)}" title="Download as a piece file">Download</button>
+    <button type="button" data-lib-del="${esc(p.id)}" aria-label="Remove from library">×</button></li>`).join("");
+}
+function downloadBytes(bytes, name){
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+$("libList").addEventListener("click", async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  try {
+    if (b.dataset.libOpen){
+      const p = await libTx("readonly", s => s.get(b.dataset.libOpen)); if (!p) return;
+      state.merge = null; $("mergeBox").hidden = true;
+      await openFile(new File([p.bytes], p.name + ".pdf", { type: "application/pdf" }));
+      $("s3").scrollIntoView({ block: "start" });
+    } else if (b.dataset.libDl){
+      const p = await libTx("readonly", s => s.get(b.dataset.libDl)); if (p) downloadBytes(p.bytes, p.name + " (Part Copier).pdf");
+    } else if (b.dataset.libDel){
+      if (!confirm("Remove this piece from your library?")) return;
+      await libTx("readwrite", s => s.delete(b.dataset.libDel)); renderLibrary();
+    }
+  } catch (err) { $("loadStatus").textContent = "Library problem: " + (err && err.message || err); }
+});
+$("pieceSave").addEventListener("click", async () => {
+  const st = $("pieceStatus"), btn = $("pieceSave"); btn.disabled = true; st.textContent = "Saving…";
+  try {
+    const { bytes, map } = await pieceBytes(), id = map.name.toLowerCase();
+    const exists = await libTx("readonly", s => s.get(id));
+    if (exists && !confirm(`Replace “${exists.name}” in your library?`)){ st.textContent = ""; return; }
+    await libTx("readwrite", s => s.put({ id, name: map.name, bytes, parts: map.segs.filter(x => x.fam).length, pages: map.numPages, savedAt: map.saved }));
+    st.textContent = `Saved “${map.name}” to your library in this browser. Next time, open it from “Your saved pieces” under step 2.`;
+    renderLibrary();
+  } catch (err) {
+    st.textContent = "Couldn't save to the library (" + (err && err.message || err) + "). Use Download piece file instead.";
+  } finally { btn.disabled = false; }
+});
+$("pieceExport").addEventListener("click", async () => {
+  const st = $("pieceStatus"); st.textContent = "Preparing…";
+  try {
+    const { bytes, map } = await pieceBytes();
+    downloadBytes(bytes, map.name + " (Part Copier).pdf");
+    st.textContent = "Downloaded. Open this PDF in Part Copier on any computer — or give it to another director — and the parts load ready to print. It's still a normal PDF for viewing and printing.";
+  } catch (err) { st.textContent = "Couldn't make the piece file: " + (err && err.message || err); }
+});
+
 /* ---------------------------------------------------------------- UI: page map */
 let observer = null;
 function buildPageMap(){
@@ -1582,6 +1812,7 @@ function refresh(){
       <td class="note">${esc(edited ? "Set by hand" : r.note)}${r.guessed ? `<div class="names" style="color:var(--warn)">Name unreadable — guessed from score order. Check page ${r.start}.</div>` : r.inferred ? `<div class="names" style="color:var(--warn)">Part number unreadable — assumed. Check page ${r.start}.</div>` : ""}${r.names.length ? `<div class="names">${r.names.map(esc).join(", ")}</div>` : ""}</td></tr>`;
   }).join("");
   paintPageMap();
+  renderReview(rows);
   // stats
   const copies = rows.reduce((s, r) => s + r.copies, 0);
   const pages = rows.reduce((s, r) => s + r.copies * (r.pages + (S().duplex && r.pages % 2 ? 1 : 0)), 0);
@@ -1718,7 +1949,7 @@ $("themeToggle").addEventListener("click", () => {
 paintThemeToggle();
 
 /* ---------------------------------------------------------------- start */
-renderEnsemble(); renderSettings(); renderCleanSettings();
+renderEnsemble(); renderSettings(); renderCleanSettings(); renderLibrary();
 (() => { let first = true; try { first = !localStorage.getItem(STORE); } catch (e) {} if (first) $("settingsBox").open = true; })();
 </script>
 </body>
