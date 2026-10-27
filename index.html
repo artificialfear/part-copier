@@ -1203,10 +1203,16 @@ function detectStarts(){
   state.starts = new Map();
   const info = state.pageInfo, n = info.length;
   // A title repeated at the top of each part's first page (but not continuation pages) marks where parts begin.
-  const tally = {};
-  info.forEach(pi => { if (pi.titleLines && pi.titleLines[0]) tally[pi.titleLines[0]] = (tally[pi.titleLines[0]] || 0) + 1; });
+  // Scanned titles are read with small OCR differences ("a cartoon christmas" / "a cartoon chrlstmas"), so near-matches count together.
+  const firsts = info.map(pi => (pi.titleLines && pi.titleLines[0]) || "");
+  const near = (a, b) => a === b || (a.length >= 8 && b.length >= 8 && Math.abs(a.length - b.length) <= 3 && lev(a, b) <= Math.max(2, Math.round(a.length * 0.15)));
   let title = null, cnt = 0;
-  for (const [k, v] of Object.entries(tally)) if (v > cnt && k.length >= 3){ title = k; cnt = v; }
+  for (const k of new Set(firsts)){
+    if (k.length < 3) continue;
+    const v = firsts.filter(f => f && near(k, f)).length;
+    if (v > cnt){ title = k; cnt = v; }
+  }
+  const isTitle = pi => !!title && (pi.titleLines || []).some(t => t && near(title, t));
   const titleOK = !!title && cnt >= 3 && cnt / n >= 0.3 && !classify(title);
   const useTitle = titleOK && cnt / n < 0.95;
   // title on (almost) every page: one-page parts, or a title repeated on continuation pages —
@@ -1214,19 +1220,30 @@ function detectStarts(){
   const titleEvery = titleOK && !useTitle;
   let cur = null;
   info.forEach((pi, i) => {
-    const page = i + 1, hasTitle = useTitle && (pi.titleLines || []).includes(title);
+    const page = i + 1, hasTitle = useTitle && isTitle(pi);
     const sameLabel = pi.fam && cur && cur.label.toLowerCase() === pi.label.toLowerCase();
+    // a continuation page's running header ends in its page number: "Tuba - 2", "1st Trumpet - 3"
+    let contHead = useTitle && !hasTitle && /\D\s*[-–]?\s*([2-9]|1\d)$/.test(((pi.titleLines || [])[0] || "").trim());
+    // with titles marking part starts, the page right after an unreadable title page is that part's page 2
+    if (useTitle && !hasTitle && cur && cur.unknown && cur.lastPage === page - 1) contHead = true;
     let start;
     if (!cur) start = true;
+    else if (useTitle && contHead){
+      // never a new part; if the part's own name was unreadable, its later pages name it
+      if (cur.unknown && pi.fam){ Object.assign(cur, { label: pi.label, fam: pi.fam, also: pi.also || [], unknown: false, fromCont: true }); }
+      start = false;
+    }
     else if (useTitle) start = hasTitle || (pi.fam && pi.fam !== cur.fam && pi.fam !== "Score");
     else if (titleEvery) start = !pi.fam || !sameLabel;
     else start = !!pi.fam && !sameLabel;
-    if (!start) return;
+    if (!start){ if (cur) cur.lastPage = page; return; }
     if (pi.fam) cur = { label: pi.label, fam: pi.fam, also: pi.also || [], override: null };
     else if (!cur && !useTitle && !titleEvery) cur = { label: state.scanned ? "Part 1" : "Front matter", fam: "Other", override: null };
     else cur = { label: `Unknown part (p. ${page})`, fam: "Other", override: null, unknown: true };
+    cur.lastPage = page;
     state.starts.set(page, cur);
   });
+  state.starts.forEach(s => { delete s.lastPage; delete s.fromCont; });
   inferNames();
 }
 // Fill in what the text couldn't tell us: missing part numbers, and unreadable parts from score order.
