@@ -2045,6 +2045,78 @@ $("missing").addEventListener("change", e => {
 });
 $("resetOverrides").addEventListener("click", () => { state.starts.forEach(s => s.override = null); refresh(); });
 
+/* ---------------------------------------------------------------- strip hidden scan text before printing */
+// Phone and tablet scanners (e.g. iPhone "Scan Documents") add an invisible, searchable text layer that
+// embeds a separate font for nearly every word — often hundreds per set. Many copiers run out of font
+// memory part-way through such a job and stop printing. That layer is never visible on paper, so it is
+// removed from the print file. Text that is actually drawn (e.g. engraved music) is never touched.
+function dropTextBlocks(d){
+  const n = d.length, out = []; let i = 0, keep = 0, inText = false;
+  const delim = c => c <= 32 || c === 40 || c === 41 || c === 60 || c === 62 || c === 91 || c === 93 || c === 123 || c === 125 || c === 47 || c === 37;
+  while (i < n){
+    const c = d[i];
+    if (c === 40){ let depth = 1; i++; while (i < n && depth){ if (d[i] === 92){ i += 2; continue; } if (d[i] === 40) depth++; else if (d[i] === 41) depth--; i++; } continue; }
+    if (c === 60 && d[i+1] !== 60){ while (i < n && d[i] !== 62) i++; i++; continue; }
+    if (c === 37){ while (i < n && d[i] !== 10 && d[i] !== 13) i++; continue; }
+    if (!delim(c)){
+      let j = i; while (j < n && !delim(d[j])) j++;
+      if (j - i === 2){
+        if (d[i] === 66 && d[i+1] === 84 && !inText){ out.push(d.subarray(keep, i)); inText = true; }
+        else if (d[i] === 69 && d[i+1] === 84 && inText){ inText = false; keep = j; }
+      }
+      i = j; continue;
+    }
+    i++;
+  }
+  if (!inText) out.push(d.subarray(keep));
+  const res = new Uint8Array(out.reduce((s, a) => s + a.length, 0)); let o = 0; for (const a of out){ res.set(a, o); o += a.length; }
+  return res;
+}
+function onlyInvisibleText(bytes){
+  let s = ""; for (let i = 0; i < bytes.length; i += 65536) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 65536));
+  const modes = [...s.matchAll(/(?:^|[^\w.])(\d)\s+Tr\b/g)].map(m => m[1]);
+  return modes.length > 0 && modes.every(m => m === "3");
+}
+function stripHiddenText(doc){
+  const { PDFName, PDFRawStream, PDFArray, PDFDict, decodePDFRawStream } = PDFLib, ctx = doc.context;
+  const done = new Set(); let fixed = 0;
+  const rewrite = (stream, bytes) => {
+    const z = ctx.flateStream(dropTextBlocks(bytes));
+    stream.contents = z.contents;
+    stream.dict.set(PDFName.of("Filter"), PDFName.of("FlateDecode")); stream.dict.delete(PDFName.of("DecodeParms"));
+    fixed++;
+  };
+  const decode = st => { try { return decodePDFRawStream(st).decode(); } catch (e) { return null; } };
+  const forms = res => {
+    const xo = res && res.lookup(PDFName.of("XObject"));
+    if (!(xo instanceof PDFDict)) return;
+    for (const [, ref] of xo.entries()){
+      const st = ctx.lookup(ref);
+      if (!(st instanceof PDFRawStream) || done.has(st)) continue; done.add(st);
+      if (String(st.dict.get(PDFName.of("Subtype"))) !== "/Form") continue;
+      const fres = st.dict.lookup(PDFName.of("Resources"));
+      forms(fres);
+      const b = decode(st);
+      if (b && onlyInvisibleText(b)){ rewrite(st, b); if (fres instanceof PDFDict) fres.delete(PDFName.of("Font")); }
+    }
+  };
+  for (const page of doc.getPages()){
+    const res = page.node.Resources();
+    forms(res);
+    const c = page.node.get(PDFName.of("Contents")), parts = [];
+    const one = ctx.lookup(c);
+    if (one instanceof PDFArray) one.asArray().forEach(r => parts.push(ctx.lookup(r))); else if (one) parts.push(one);
+    const decoded = parts.map(st => (st instanceof PDFRawStream && !done.has(st)) ? decode(st) : null);
+    if (!decoded.length || decoded.some(b => !b)) continue;
+    const all = decoded.reduce((s, b) => s + b.length, 0), joined = new Uint8Array(all + decoded.length); let o = 0;
+    decoded.forEach(b => { joined.set(b, o); o += b.length + 1; joined[o - 1] = 10; });
+    if (!onlyInvisibleText(joined)) continue;
+    parts.forEach((st, k) => { done.add(st); rewrite(st, decoded[k]); });
+    if (res) res.delete(PDFName.of("Font"));
+  }
+  return fixed;
+}
+
 /* ---------------------------------------------------------------- build the print PDF */
 $("buildBtn").addEventListener("click", async () => {
   const btn = $("buildBtn"), status = $("buildStatus");
@@ -2057,6 +2129,8 @@ $("buildBtn").addEventListener("click", async () => {
       if (/encrypt/i.test(err.message)) { status.textContent = "This PDF is locked by the publisher, so its pages can't be copied into a new file. Print it from the publisher's own viewer instead."; return; }
       throw err;
     }
+    let hiddenFixed = 0;
+    try { hiddenFixed = stripHiddenText(src); } catch (err) { console.warn("Couldn't remove the hidden scan text:", err); }
     const out = await PDFDocument.create();
     let index = 0;
     const insertRef = (ref, node) => { const parent = out.catalog.insertLeafNode(ref, index++); node.setParent(parent); };
@@ -2122,7 +2196,7 @@ $("buildBtn").addEventListener("click", async () => {
     let name = $("outName").value.trim() || "print.pdf"; if (!/\.pdf$/i.test(name)) name += ".pdf";
     a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-    status.textContent = `Done — ${index} pages. Send the file to the copier as one job, single copy.`;
+    status.textContent = `Done — ${index} pages. Send the file to the copier as one job, single copy.` + (hiddenFixed ? " (Removed the scanner’s hidden text layer, which can make copiers stop part-way.)" : "");
   } catch (err) {
     status.textContent = "Something went wrong building the PDF: " + (err && err.message || err);
   } finally { btn.disabled = false; }

@@ -122,6 +122,9 @@ rosters contains student names — keep it in your school account.
 
 ## Limitations
 
+- Scans made with a phone or tablet (e.g. iPhone "Scan Documents") carry an invisible, searchable
+  text layer with a separate font for almost every word. Copiers can run out of memory partway through
+  and stop printing, so the print file leaves that layer out. Nothing visible changes.
 - PDFs locked by a publisher (encrypted) can be viewed but not copied into a new file.
 - Part detection reads the top of each page; unusual layouts may need fixing in the page map.
 - Only copy music your license allows you to copy.
