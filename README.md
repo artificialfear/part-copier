@@ -111,6 +111,12 @@ rosters contains student names — keep it in your school account.
 - No spare copies, no score, single-sided.
 - Bassoon with no bassoon part: gets the lowest trombone part.
 - Trumpets with only cornet parts (or cornets with only trumpet parts) split across those parts.
+- Mellophones with only horn parts (or horns with only mellophone parts) split across those parts;
+  sousaphones and tubas share parts the same way.
+- Marching percussion (snare, bass drum, tenors/quints, cymbals) gets its own parts, split by chair when
+  numbered (e.g. Bass Drum 1–5). A band with no marching percussion entered gives a concert set's
+  "Snare Drum" or "Cymbals" part to every percussionist; marching percussion with no part of its own in a
+  set gets every percussion part.
 
 ## Publishing on GitHub Pages
 
