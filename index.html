@@ -459,6 +459,8 @@ function lev(a, b){
 }
 function fixWord(tok){
   if (!/[a-z]/i.test(tok)) return tok;
+  if (/^\d+(st|nd|rd|th)$/i.test(tok)) return tok;          // "1st" is not "lst"
+  if (/^[lI|](st)$/.test(tok)) return "1st";                  // …but OCR often reads "1st" as "lst"
   let t = tok;
   if (/\d/.test(t)) t = t.replace(/0/g, "o").replace(/1/g, "l").replace(/5/g, "s");
   const w = t.toLowerCase().replace(/[^a-z]/g, "");
@@ -471,7 +473,8 @@ function fixWord(tok){
     }
     if (best) return best;
   }
-  return t;
+  // digits swapped for letters only help when that spells a known word
+  return /\d/.test(tok) && !OCR_WORDS.includes(w) ? tok : t;
 }
 function mergeFragments(line){
   const toks = line.split(/\s+/);
@@ -509,7 +512,9 @@ function canonLabel(fam, text){
   if (fam === "Flute" && /\bpiccolo\b/.test(t) && !/\bflute\b/.test(t)) base = "Piccolo";
   if (fam === "Trombone" && /\bbass trombone\b/.test(t)) base = "Bass Trombone";
   if (fam === "Score") return "Score";
-  const also = /[\/&]/.test(text) ? classifyAll(text).filter(f => f !== fam && INSTR_IDS.includes(f)) : [];
+  const also = alsoFams(fam, text);
+  // "Solo Percussion" is a different part from "Percussion"
+  if (/\bsolo\b/.test(t) && t.split(/\s+/).length <= 5) base = "Solo " + base;
   return [base + numText(partNums(text))].concat(also.map(f => CANON[f] || f)).join(" / ");
 }
 
@@ -517,9 +522,12 @@ function canonLabel(fam, text){
 const stripAlt = t => String(t || "").replace(/\((?=[^)]*\b(opt|optional|alt|alternate|or|doubles?)\b)[^)]*\)/gi, " ");
 function famHits(text){
   const t = norm(fixOcr(stripAlt(text))), hits = [];
-  RX.forEach(([re, fam], order) => { const m = re.exec(t); if (m) hits.push({ fam, at: m.index, order }); });
+  RX.forEach(([re, fam], order) => { const m = re.exec(t); if (m) hits.push({ fam, at: m.index, end: m.index + m[0].length, order }); });
   hits.sort((a, b) => a.at - b.at || a.order - b.order);
-  return hits;
+  // one word can't name two instruments: "Baritone Saxophone" is a bari sax, not also a baritone (euphonium)
+  const kept = []; let reach = -1;
+  for (const h of hits){ if (h.at < reach) continue; kept.push(h); reach = Math.max(reach, h.end); }
+  return kept;
 }
 function classify(text){
   const hits = famHits(text), fams = hits.map(h => h.fam);
@@ -532,6 +540,12 @@ function classifyAll(text){
   const out = [];
   for (const h of famHits(text)) if (h.fam !== "Score" && !out.includes(h.fam)) out.push(h.fam);
   return out;
+}
+// the other instruments a combined part names: "Trombone / Euphonium / Bassoon", or flex parts printed
+// without separators ("Clarinet in Bb Trumpet in Bb", "Flute Oboe")
+function alsoFams(fam, text){
+  if (!fam || fam === "Score") return [];
+  return classifyAll(text).filter(f => f !== fam && INSTR_IDS.includes(f) && !(fam === "Percussion" && BATTERY.includes(f)) && !(BATTERY.includes(fam) && f === "Percussion"));
 }
 function partNums(label){
   const t = norm(fixOcr(stripAlt(label)));
@@ -566,7 +580,7 @@ function labelFromLines(lines){
   if (!fam) return null;
   const line = lines.find(l => fam === "Score" ? /score|conductor/i.test(l) : classify(l) === fam) || lines.join(" ");
   const clean = cleanLabel(line);
-  const also = fam !== "Score" && /[\/&]/.test(clean) ? classifyAll(clean).filter(f => f !== fam && INSTR_IDS.includes(f)) : [];
+  const also = alsoFams(fam, clean);
   return { fam, label: canonLabel(fam, clean), also };
 }
 
@@ -1608,7 +1622,9 @@ const titleKey = l => norm(fixOcr(l)).replace(/[^a-z0-9 ]/g, "").replace(/\s+/g,
 function flaggedStarts(){ return [...state.starts.entries()].filter(([, s]) => s.unknown || s.guessed || s.inferred || s.fam === "Other").map(([p]) => p); }
 async function readPageImages(){
   const junkPages = state.pageInfo.filter(pi => pi.junk).length;
-  const all = (state.scanned || junkPages >= Math.max(2, state.numPages * 0.1)) && !state.knownParts;
+  // a text layer that never names an instrument (part names drawn as artwork, e.g. a Keynote/Pages export) is no help either
+  const nameless = state.numPages > 1 && state.pageInfo.every(pi => !pi.fam || pi.fam === "Other");
+  const all = (state.scanned || nameless || junkPages >= Math.max(2, state.numPages * 0.1)) && !state.knownParts;
   const pages = all ? Array.from({ length: state.numPages }, (_, i) => i + 1) : flaggedStarts().filter(p => !(state.pageInfo[p-1] || {}).ocr);
   if (!pages.length) return;
   const run = ++ocrRun, box = $("ocrStatus");
@@ -1642,7 +1658,7 @@ async function readPageImages(){
     }
     refresh();
     box.className = "notice ok";
-    box.textContent = all ? `${state.scanned ? "" : "This PDF's built-in text was unreadable, so I "}${state.scanned ? "Read" : "read"} the page images — found ${applied} part${applied === 1 ? "" : "s"} by name.` :
+    box.textContent = all ? `${state.scanned ? "" : nameless ? "This PDF's built-in text doesn't name the parts, so I " : "This PDF's built-in text was unreadable, so I "}${state.scanned ? "Read" : "read"} the page images — found ${applied} part${applied === 1 ? "" : "s"} by name.` :
       applied ? `Re-read ${applied} unclear part name${applied === 1 ? "" : "s"} from the page images.` : "Re-checked the unclear part names on the page images — no better reading found.";
     setTimeout(() => { if (run === ocrRun) box.hidden = true; }, 8000);
   } catch (err) {
@@ -2076,7 +2092,7 @@ $("partRows").addEventListener("change", e => {
   const st = state.starts.get(+tr.dataset.start); if (!st) return;
   const f = e.target.dataset.field;
   st.guessed = st.inferred = st.unknown = false; state.userTouched = true;
-  if (f === "label"){ st.label = e.target.value.trim() || st.label; st.also = /[\/&]/.test(st.label) ? classifyAll(st.label).slice(1).filter(x => INSTR_IDS.includes(x)) : []; const fam = classify(st.label); if (fam && !st.famManual) st.fam = fam; }
+  if (f === "label"){ st.label = e.target.value.trim() || st.label; st.also = alsoFams(classify(st.label), st.label); const fam = classify(st.label); if (fam && !st.famManual) st.fam = fam; }
   if (f === "fam"){ st.fam = e.target.value; st.famManual = true; }
   if (f === "copies"){ const v = parseInt(e.target.value, 10); st.override = isNaN(v) ? null : Math.max(0, v); }
   refresh();
