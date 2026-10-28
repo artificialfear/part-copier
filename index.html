@@ -2179,6 +2179,37 @@ function stripHiddenText(doc){
   return fixed;
 }
 
+/* ---------------------------------------------------------------- where the name box can go */
+const inkCache = new Map();
+async function inkMap(pageNum){
+  const key = state.bytes && state.bytes.byteLength + ":" + pageNum;
+  if (inkCache.has(key)) return inkCache.get(key);
+  const page = await state.pdf.getPage(pageNum), vp = page.getViewport({ scale: 1 });   // 1 px = 1 pt
+  const c = document.createElement("canvas"); c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+  const ctx = c.getContext("2d", { willReadFrequently: true }); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  const d = ctx.getImageData(0, 0, c.width, c.height).data, ink = new Uint8Array(c.width * c.height);
+  for (let i = 0, j = 0; j < ink.length; i += 4, j++) ink[j] = (d[i] * 0.3 + d[i+1] * 0.59 + d[i+2] * 0.11) < 150 ? 1 : 0;
+  const m = { w: c.width, h: c.height, ink };
+  if (inkCache.size > 400) inkCache.clear();
+  inkCache.set(key, m); c.width = c.height = 1;
+  return m;
+}
+async function stampSpot(pageNum, bw, bh){
+  let m; try { m = await inkMap(pageNum); } catch (e) { return null; }
+  const pad = 3, inked = (x0, yTop) => {   // x0 / yTop in pixels from the top-left
+    let n = 0;
+    for (let y = Math.max(0, Math.floor(yTop - pad)); y < Math.min(m.h, Math.ceil(yTop + bh + pad)); y++)
+      for (let x = Math.max(0, Math.floor(x0 - pad)); x < Math.min(m.w, Math.ceil(x0 + bw + pad)); x++) if (m.ink[y * m.w + x] && ++n > 3) return true;
+    return false;
+  };
+  const rows = [24, 12, 36].map(t => ({ top: t, y: m.h - t - bh })).concat([24, 12].map(b => ({ top: m.h - b - bh, y: b })));
+  for (const r of rows)
+    for (let right = m.w - 24; right - bw >= 24; right -= 6)
+      if (!inked(right - bw, r.top)) return { right, y: r.y };
+  return null;   // nowhere blank: keep the usual top-right corner
+}
+
 /* ---------------------------------------------------------------- build the print PDF */
 $("buildBtn").addEventListener("click", async () => {
   const btn = $("buildBtn"), status = $("buildStatus");
@@ -2202,10 +2233,14 @@ $("buildBtn").addEventListener("click", async () => {
       try { font.encodeText(s); return s; }
       catch (e) { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E\xA0-\xFF]/g, ""); }
     };
-    const stamp = (page, name) => {
-      const { width, height } = page.getSize(), size = 12, padX = 6, padY = 4, margin = 24;
+    const SIZE = 12, PADX = 6, PADY = 4;
+    const boxW = name => font.widthOfTextAtSize(safe(name), SIZE) + 2*PADX, BOXH = SIZE + 2*PADY;
+    const stamp = (page, name, spot) => {
+      const { width, height } = page.getSize(), size = SIZE, padX = PADX, padY = PADY, margin = 24;
       const text = safe(name), tw = font.widthOfTextAtSize(text, size);
-      const bw = tw + 2*padX, bh = size + 2*padY, bx = width - margin - bw, by = height - margin - bh;
+      const bw = tw + 2*padX, bh = size + 2*padY;
+      let bx = width - margin - bw, by = height - margin - bh;
+      if (spot){ bx = spot.right - bw; by = spot.y; }
       page.drawRectangle({ x: bx, y: by, width: bw, height: bh, color: rgb(1,1,1), borderColor: rgb(0,0,0), borderWidth: 0.8 });
       page.drawText(text, { x: bx + padX, y: by + padY + 2, size, font, color: rgb(0,0,0) });
     };
@@ -2216,6 +2251,11 @@ $("buildBtn").addEventListener("click", async () => {
         if (!font) font = await out.embedFont(StandardFonts.HelveticaBold);
         const pagesIn = srcPages.slice(r.start - 1, r.end);
         const emb = await out.embedPages(pagesIn);
+        // the name goes top-right, unless that would cover something (a QR code, a page number, the part name):
+        // then the nearest blank spot along the top, or along the bottom
+        const widest = Math.max(...r.print.filter(Boolean).map(boxW), 0);
+        const spots = [];
+        for (let k = 0; k < pagesIn.length; k++) spots.push(widest ? await stampSpot(r.start + k, widest, BOXH) : null);
         for (const who of r.print){
           let lastSize = null;
           pagesIn.forEach((sp, i) => {
@@ -2225,7 +2265,7 @@ $("buildBtn").addEventListener("click", async () => {
             else if (ang === 180){ page.setSize(w, h); page.drawPage(e, { x: w, y: h, rotate: degrees(180) }); }
             else if (ang === 270){ page.setSize(h, w); page.drawPage(e, { x: h, y: 0, rotate: degrees(90) }); }
             else { page.setSize(w, h); page.drawPage(e, { x: 0, y: 0 }); }
-            if (who) stamp(page, who);
+            if (who) stamp(page, who, spots[i]);
             lastSize = page.getSize();
             insertRef(page.ref, page.node);
           });

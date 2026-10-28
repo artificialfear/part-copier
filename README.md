@@ -91,7 +91,7 @@ fine) — or upload a CSV. Then:
 - Split parts (1st/2nd/3rd) are assigned in chair order; chairs can be numbers or
   ordinals like "2nd" or "3rd (tie)". Students without a chair go last in their section.
 - Each student's first name is printed in the top-right corner of every page of their
-  copy (with a last initial when two students in the ensemble share a first name).
+  copy (moved along the top, or to the bottom, if that corner has something in it, like a QR code) (with a last initial when two students in the ensemble share a first name).
   Uncheck **Print names on parts** to use the roster for counts only.
 - Rosters are saved only in that browser. On shared computers, use **Forget roster**.
 
