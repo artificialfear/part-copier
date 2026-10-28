@@ -565,7 +565,46 @@ function cleanLabel(s){
   s = s.replace(/\b\d+\s*\/\s*\d+\b/g, "");
   return s.replace(/\s+/g, " ").replace(/^[\s\-–]+|[\s\-–]+$/g, "").slice(0, 60);
 }
+/* ---- flex-band sets: numbered voices (Part 1–5), each printed in several keys/clefs */
+const FLEX_DEFAULTS = {
+  "C":          v => ["Flute","Oboe"],
+  "B♭":         v => v >= 4 ? ["Clarinet","Trumpet","Tenor Sax","Euphonium TC","Bass Clarinet"] : ["Clarinet","Trumpet","Tenor Sax","Euphonium TC"],
+  "E♭":         v => ["Alto Sax","Bari Sax"],
+  "F":          v => ["Horn"],
+  "Bass Clef":  v => v >= 4 ? ["Trombone","Euphonium BC","Bassoon","Tuba"] : ["Trombone","Euphonium BC","Bassoon"]
+};
+const ROMAN = { i:1, ii:2, iii:3, iv:4, v:5 };
+function flexVoice(label){
+  const m = norm(String(label || "")).match(/^(?:flex\s+)?part\s*([1-6])\b/);
+  return m ? +m[1] : 0;
+}
+function flexParse(lines){
+  const all = lines.map(l => norm(fixOcr(l)));
+  const k = all.findIndex(l => /\b(?:flex\s+)?part\s*(?:[1-6]|i{1,3}|iv|v)\b/.test(l));
+  if (k < 0) return null;
+  const line = all[k], m = line.match(/\b(?:flex\s+)?part\s*([1-6]|i{1,3}|iv|v)\b/);
+  const voice = /\d/.test(m[1]) ? +m[1] : ROMAN[m[1]];
+  const rest = line.slice(m.index + m[0].length) + " " + line.slice(0, m.index);
+  let key = null;
+  if (/\bbass\s*clef\b|\bb\.\s?c\.|\(bc\)/.test(rest)) key = "Bass Clef";
+  else if (/\b(bb|b flat|b-flat)\b/.test(rest)) key = "B♭";
+  else if (/\b(eb|e flat|e-flat)\b/.test(rest)) key = "E♭";
+  else if (/\bf\b|\bin f\b/.test(rest)) key = "F";
+  else if (/\bc\b|\bconcert\b/.test(rest)) key = "C";
+  else if (/\bbass\b(?!\s*(clarinet|sax|saxophone|trombone|drum))/.test(rest)) key = "Bass Clef";
+  // instruments named on the part line or the lines just below it
+  const named = [];
+  for (const l of all.slice(k, k + 3)) for (const f of classifyAll(l)) if (INSTR_IDS.includes(f) && !named.includes(f)) named.push(f);
+  if (!key && !named.length) return null;     // "Part 1" alone isn't enough to call it a flex part
+  let fams = named.filter(f => f !== "Percussion" || named.length === 1);
+  if (!fams.length && key) fams = FLEX_DEFAULTS[key](voice);
+  if (!fams.length) return null;
+  const label = `Part ${voice}${key ? " " + key : ""} – ${fams.map(f => CANON[f] || f).join(" / ")}`;
+  return { fam: fams[0], label, also: fams.slice(1), voice };
+}
 function labelFromLines(lines){
+  const flex = flexParse(lines);
+  if (flex) return { fam: flex.fam, label: flex.label, also: flex.also };
   // "Trombone/" + "Euphonium/" + "Bassoon" printed on separate lines is one part name
   // (the title and composer lines can sit between them, so look a few lines ahead for the next instrument)
   lines = lines.slice();
@@ -757,11 +796,32 @@ function plan(){
   const numsBy = {};
   for (const r of rows) if (!r.dup && r.nums.length) { numsBy[r.fam] = numsBy[r.fam] || new Set(); r.nums.forEach(n => numsBy[r.fam].add(n)); }
 
+  // flex-band voices: each instrument's players are split by chair across the voices it appears on
+  const flexRows = rows.filter(r => !r.dup && INSTR_IDS.includes(r.fam) && (r.voice = flexVoice(r.label)));
+  const isFlex = flexRows.length >= 2;
+  if (isFlex){
+    flexRows.forEach(r => { r.flexList = []; r.flexFrom = []; });
+    for (const id of INSTR_IDS){
+      if (id === "Percussion" || BATTERY.includes(id)) continue;
+      const g = groups[id] || []; if (!g.length) continue;
+      const targets = flexRows.filter(r => r.fam === id || (r.also || []).includes(id)).sort((a, b) => a.voice - b.voice || a.start - b.start);
+      if (!targets.length) continue;
+      const n = targets.length, base = Math.floor(g.length / n), rem = g.length % n;
+      let off = 0;
+      targets.forEach((r, i) => {
+        const sh = base + ((st.oddTo === "first" ? i < rem : i >= n - rem) ? 1 : 0);
+        const part = g.slice(off, off + sh); off += sh;
+        if (part.length){ r.flexList = r.flexList.concat(part); r.flexFrom.push(`${part.length} ${SHORT(id)}`); }
+      });
+    }
+  }
+
   // instruments with no part of their own whose players split across another instrument's parts
   const present = new Set(rows.filter(r => !r.dup).map(r => r.fam));
+  if (isFlex) flexRows.forEach(r => (r.also || []).forEach(f => present.add(f)));
   const pooled = {}, pooledFrom = {};
   for (const r of rows){
-    if (r.dup || !r.also || !r.also.length) continue;
+    if (r.dup || !r.also || !r.also.length || (isFlex && r.voice)) continue;
     for (const f of r.also){
       if (present.has(f)) continue;
       present.add(f);
@@ -785,6 +845,11 @@ function plan(){
     const incl = pooledFrom[r.fam] ? ` (incl. ${pooledFrom[r.fam].join(", ")})` : "";
     if (r.fam === "Other"){ r.note = "Not counted — pick an instrument if this is a part"; r.flag = r.pages > 0 && r.label !== "Front matter"; continue; }
     if (r.dup){ r.note = "Duplicate of an earlier part"; continue; }
+    if (isFlex && r.voice && r.flexList){
+      r.list = r.flexList.slice();
+      r.note = r.list.length ? `Flex part ${r.voice} — ${r.flexFrom.join(", ")}` : "No players on this voice";
+      continue;
+    }
     if (r.fam === "Score"){ r.list = st.includeScore ? Array(st.scoreCopies).fill(null) : []; r.note = st.includeScore ? "Score" : "Score not included"; continue; }
     if (BATTERY.includes(r.fam) && !(groups[r.fam] || []).length && (groups.Percussion || []).length){
       // e.g. a concert set's "Snare Drum" part, for a band with no marching snares entered
@@ -2048,6 +2113,15 @@ function refresh(){
   const long = real.filter(r => r.pages >= 3 && r.pages >= med * 2.5);
   let extra = "";
   if (guessed.length) extra += `<p class="notice warn">${guessed.length} part name${guessed.length === 1 ? " was" : "s were"} unreadable and filled in (highlighted below): ${guessed.map(r => `p. ${r.start} ${esc(r.label)}`).join(", ")}. Check them against the page map.</p>`;
+  // flex sets: say how players were placed, and warn when a whole voice has nobody on it
+  const voiced = rows.filter(r => !r.dup && r.voice);
+  if (voiced.length >= 2){
+    const byV = {};
+    voiced.forEach(r => { byV[r.voice] = (byV[r.voice] || 0) + r.copies; });
+    const empty = Object.keys(byV).filter(v => !byV[v]).map(v => "Part " + v);
+    extra += `<p class="notice ${empty.length ? "warn" : "info"}">Flex arrangement: each instrument's players are split by chair across the voices printed for that instrument (top chairs on Part 1).` +
+      (empty.length ? ` <b>Nobody is on ${empty.join(" or ")}</b> — that line won't be covered. Type a copy count on one of its rows to assign it.` : "") + `</p>`;
+  }
   if (long.length) extra += `<p class="notice warn">${long.map(r => `${esc(r.label)} (${r.pages} pages)`).join(", ")} ${long.length === 1 ? "is" : "are"} much longer than the other parts and may include another part. Check the page map.</p>`;
   if (state.knownParts && !unknown) notice = state.merge ? `<p class="notice ok">Merged ${state.merge.items.length} files — one part per file. Check the instruments and copy counts below.</p>`
                                                           : `<p class="notice ok">Found ${rows.filter(r => INSTR_IDS.includes(r.fam)).length} parts. Check the instruments and copy counts below.</p>`;

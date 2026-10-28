@@ -103,6 +103,16 @@ print rules, scan-cleanup settings). On the other computer, open the tool and **
 file**. Ensembles with the same name are replaced; others are kept. A file that includes
 rosters contains student names — keep it in your school account.
 
+### Flex arrangements
+
+- Flex parts that name several instruments ("Clarinet in Bb Trumpet in Bb", "Trombone Baritone Bassoon") go to
+  every instrument they name.
+- Numbered flex sets (Part 1 C, Part 1 B♭, Part 2 E♭, Part 4 Bass Clef…) are recognized by voice and key. Each
+  instrument's players are split by chair across the voices printed for that instrument — top chairs on Part 1.
+  When a part doesn't list instruments, the key decides (C: flute/oboe; B♭: clarinet, trumpet, tenor sax,
+  baritone T.C.; E♭: alto/bari sax; F: horn; bass clef: trombone, euphonium, bassoon, plus tuba on Parts 4–5).
+- If nobody ends up on a voice (e.g. Part 5 with no tubas), the tool warns you so the line isn't left uncovered.
+
 ## Default print rules (change under "Print rules")
 
 - Split parts (1st/2nd/3rd): players divided evenly; an odd player goes to the 1st part.
