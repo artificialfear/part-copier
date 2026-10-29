@@ -103,6 +103,14 @@ print rules, scan-cleanup settings). On the other computer, open the tool and **
 file**. Ensembles with the same name are replaced; others are kept. A file that includes
 rosters contains student names — keep it in your school account.
 
+### ePrint and download sets
+
+- Sets that come with several copies of each part (e.g. ePrint files with 8 flute pages) are recognized: the
+  extra copies are skipped and each student's copy prints from the first one.
+- A full score is found from the instrument names down its left margin, even when its first page looks like a
+  part. A cover page and program notes before it are treated as front matter.
+- Mallet parts keep their own names (Bells, Chimes, Xylophone…) so separate mallet parts aren't merged.
+
 ### Flex arrangements
 
 - Flex parts that name several instruments ("Clarinet in Bb Trumpet in Bb", "Trombone Baritone Bassoon") go to
