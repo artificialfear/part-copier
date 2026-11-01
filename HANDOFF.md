@@ -20,11 +20,14 @@ Chairs come from the 7th/8th chair sheets via IMPORTRANGE; if chairs vanish, re-
 Ref tabs, Test Scores (Admin – Band Ninja) and the Part Copier Roster column.
 
 ## Testing
-Playwright scripts live outside the repo (test PDFs are copyrighted). Planned: tests/ with synthetic PDFs.
+tests/make_fixtures.py (synthetic PDFs + made-up rosters) and tests/run_tests.py (Playwright; 31 checks:
+detection, chair splits, copies, flex + auto-cover, marching, hidden-text strip, OCR scan, preflight,
+percussion grid, reprint, hand-out list). Run both before committing. Real copyrighted sets are only
+tested locally, never committed.
 
-## Open items (Mat approved all, 2026-11-01)
-3. Pull roster from Band Ninja directly (Google sign-in; needs a Google Cloud OAuth client — Mat to set up with help).
-4. Faster OCR for big scans/ePrints (header strip only, lower res, parallel, skip copies).
-5. Printable hand-out list (part → students in chair order).
-6. Auto-cover empty flex voices.
-7. Synthetic test suite in the repo; update or retire the concert-copies skill.
+## Open items
+3. Pull roster from Band Ninja directly (Google sign-in; needs a Google Cloud OAuth client). On hold at Mat's request (2026-11-01).
+
+## Decisions
+- concert-copies skill retired (2026-11-01); the web tool is the only path.
+- OCR stays at 1800 px header width — 1300 px was not faster on ePrints (JPEG decode bound) and misread Afro Blue.

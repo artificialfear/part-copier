@@ -1,5 +1,12 @@
 # Part Copier changelog
 
+## 2026-11-01 (later)
+- Scans and ePrints read about 40% faster (two readers, repeated copies read once, time-left estimate).
+- Hand-out list PDF: each part and its students in chair order.
+- Flex sets: an empty voice is covered by moving the lowest player from a nearby voice.
+- Print files keep visible text and drop only the invisible scanner layer (and fonts nothing uses).
+- Test suite with made-up fixtures in tests/.
+
 ## 2026-11-01
 - Percussion grid: choose which percussionists play which part, per piece and ensemble.
 - "Check before printing" in step 4: missing chairs, split-point ties, old rosters, students with no

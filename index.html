@@ -394,6 +394,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
     <div class="row">
       <input type="text" id="outName" style="flex:1;min-width:240px" aria-label="File name">
       <button class="primary" id="buildBtn">Download print PDF</button>
+      <button type="button" id="handoutBtn" title="One page listing each part and who gets it, in chair order — for passing out music">Hand-out list</button>
     </div>
     <div class="status" id="buildStatus"></div>
 
@@ -831,7 +832,7 @@ function plan(){
   const flexRows = rows.filter(r => !r.dup && INSTR_IDS.includes(r.fam) && (r.voice = flexVoice(r.label)));
   const isFlex = flexRows.length >= 2;
   if (isFlex){
-    flexRows.forEach(r => { r.flexList = []; r.flexFrom = []; });
+    flexRows.forEach(r => { r.flexList = []; r.flexFrom = []; r.flexBy = {}; });
     for (const id of INSTR_IDS){
       if (id === "Percussion" || BATTERY.includes(id)) continue;
       const g = groups[id] || []; if (!g.length) continue;
@@ -842,9 +843,33 @@ function plan(){
       targets.forEach((r, i) => {
         const sh = base + ((st.oddTo === "first" ? i < rem : i >= n - rem) ? 1 : 0);
         const part = g.slice(off, off + sh); off += sh;
-        if (part.length){ r.flexList = r.flexList.concat(part); r.flexFrom.push(`${part.length} ${SHORT(id)}`); }
+        if (part.length) r.flexBy[id] = part;
       });
     }
+    // a voice nobody is on: move the lowest-chair player of a section that has two or more on a nearby voice
+    const keyOf = r => { const m = r.label.match(/^Part\s*\d\s+(C|B♭|E♭|F|Bass Clef)\b/); return m ? m[1] : null; };
+    const covered = v => flexRows.some(r => r.voice === v && Object.values(r.flexBy).some(a => a.length));
+    const voices = [...new Set(flexRows.map(r => r.voice))].sort((a, b) => a - b);
+    for (const v of voices){
+      if (covered(v)) continue;
+      let best = null;
+      for (const r of flexRows.filter(x => x.voice === v)){
+        const k = keyOf(r), cands = [r.fam].concat(r.also || [], k ? FLEX_DEFAULTS[k](v) : []);
+        for (const id of [...new Set(cands)]){
+          for (const d of flexRows){
+            const have = d.flexBy[id] || [];
+            if (d === r || d.voice === v || have.length < 2) continue;
+            const dist = Math.abs(d.voice - v) * 10 + (d.voice < v ? 0 : 5) + (cands.indexOf(id) > (r.also || []).length ? 1 : 0);
+            if (!best || dist < best.dist) best = { r, d, id, dist };
+          }
+        }
+      }
+      if (!best) continue;
+      const who = best.d.flexBy[best.id].pop();
+      (best.r.flexBy[best.id] = best.r.flexBy[best.id] || []).push(who);
+      best.r.flexMoved = `${who || "1 " + SHORT(best.id)} moved from Part ${best.d.voice} to cover this voice`;
+    }
+    flexRows.forEach(r => { for (const [id, a] of Object.entries(r.flexBy)) if (a.length){ r.flexList = r.flexList.concat(a); r.flexFrom.push(`${a.length} ${SHORT(id)}`); } });
   }
 
   // instruments with no part of their own whose players split across another instrument's parts
@@ -879,7 +904,7 @@ function plan(){
     if (r.dup){ r.note = r.copyOf ? `Another copy of the part on p. ${r.copyOf} — printed from there` : "Duplicate of an earlier part"; continue; }
     if (isFlex && r.voice && r.flexList){
       r.list = r.flexList.slice();
-      r.note = r.list.length ? `Flex part ${r.voice} — ${r.flexFrom.join(", ")}` : "No players on this voice";
+      r.note = r.list.length ? `Flex part ${r.voice} — ${r.flexFrom.join(", ")}${r.flexMoved ? ` (${r.flexMoved})` : ""}` : "No players on this voice";
       continue;
     }
     if (r.fam === "Score"){ r.list = st.includeScore ? Array(st.scoreCopies).fill(null) : []; r.note = st.includeScore ? "Score" : "Score not included"; continue; }
@@ -1748,13 +1773,25 @@ async function getOcr(){
   if (!ocrLoading) ocrLoading = (async () => {
     if (!window.Tesseract) await loadScript("lib/ocr/tesseract.min.js");
     const base = new URL("lib/ocr/", location.href).href;
-    const w = await Tesseract.createWorker("eng", 1, { workerPath: base + "worker.min.js", corePath: base, langPath: base + "lang", gzip: true, workerBlobURL: false });
-    await w.setParameters({ tessedit_pageseg_mode: "11" });
-    ocrWorker = w; return w;
+    // two readers side by side on machines that can afford it (about twice as fast on big sets)
+    const n = (navigator.hardwareConcurrency || 2) >= 4 && !(navigator.deviceMemory && navigator.deviceMemory < 4) ? 2 : 1;
+    const sched = Tesseract.createScheduler();
+    const make = async () => {
+      const w = await Tesseract.createWorker("eng", 1, { workerPath: base + "worker.min.js", corePath: base, langPath: base + "lang", gzip: true, workerBlobURL: false });
+      await w.setParameters({ tessedit_pageseg_mode: "11" });
+      sched.addWorker(w);
+    };
+    await make();
+    if (n > 1) make().catch(() => {});      // the second reader joins when it's ready
+    ocrWorker = { recognize: c => sched.addJob("recognize", c), workers: n }; return ocrWorker;
   })().catch(err => { ocrLoading = null; throw err; });
   return ocrLoading;
 }
 async function ocrHeader(pageNum){
+  const c = await renderHeader(pageNum);
+  return readHeader(c);
+}
+async function renderHeader(pageNum){
   const page = await state.pdf.getPage(pageNum);
   const vp1 = page.getViewport({ scale: 1 }), scale = Math.min(3, 1800 / vp1.width), vp = page.getViewport({ scale });
   const c = newCanvas(vp.width, vp.height * 0.22), x = ctx2d(c);
@@ -1767,7 +1804,12 @@ async function ocrHeader(pageNum){
     for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (d[i] + d[i+1] + d[i+2]) / 3;
     (state.fp = state.fp || {})[pageNum] = g;
   } catch (e) {}
+  page.cleanup();
+  return c;
+}
+async function readHeader(c){
   const { data } = await (await getOcr()).recognize(c);
+  c.width = c.height = 1;
   let lines = (data.lines || []).filter(l => l.text && l.text.trim()).sort((a, b) => (a.bbox.y0 - b.bbox.y0) || (a.bbox.x0 - b.bbox.x0)).map(l => l.text);
   if (!lines.length) lines = (data.text || "").split("\n");
   return lines.map(s => s.replace(/\s+/g, " ").trim()).filter(Boolean);
@@ -1811,11 +1853,24 @@ async function readPageImages(){
     box.textContent = "Loading the text reader (first time only)…";
     await getOcr();
     const found = {};
+    const t0 = Date.now(), reads = new Array(pages.length), inflight = [];
+    let done = 0, reused = 0;
+    const tick = () => {
+      const left = pages.length - done, secs = done > 2 ? Math.round((Date.now() - t0) / done * left / 1000) : null;
+      box.textContent = `Reading part names from the page images… ${done} of ${pages.length}` + (secs ? ` — about ${secs < 60 ? secs + " s" : Math.ceil(secs / 60) + " min"} left` : "");
+    };
     for (let k = 0; k < pages.length; k++){
       if (run !== ocrRun) return;
-      box.textContent = `Reading part names from the page images… page ${pages[k]} (${k + 1} of ${pages.length})`;
-      const lines = await ocrHeader(pages[k]);
+      const c = await renderHeader(pages[k]);
+      if (k && pages[k] === pages[k-1] + 1 && sameCopy(pages[k-1], pages[k])){ reads[k] = reads[k-1]; reused++; c.width = c.height = 1; }
+      else reads[k] = readHeader(c);
+      reads[k].then(() => { done++; tick(); }, () => {});
+      inflight.push(reads[k]);
+      if (inflight.length >= 3) await inflight.shift();
+    }
+    for (let k = 0; k < pages.length; k++){
       if (run !== ocrRun) return;
+      const lines = await reads[k];
       const res = labelFromLines(lines), pi = state.pageInfo[pages[k] - 1];
       pi.ocr = true;
       if (all){ pi.titleLines = lines.slice(0, 2).map(titleKey); pi.fam = res ? res.fam : undefined; pi.label = res ? res.label : undefined; pi.also = res ? res.also : []; }
@@ -2236,7 +2291,7 @@ function refresh(){
     const byV = {};
     voiced.forEach(r => { byV[r.voice] = (byV[r.voice] || 0) + r.copies; });
     const empty = Object.keys(byV).filter(v => !byV[v]).map(v => "Part " + v);
-    extra += `<p class="notice ${empty.length ? "warn" : "info"}">Flex arrangement: each instrument's players are split by chair across the voices printed for that instrument (top chairs on Part 1).` +
+    extra += `<p class="notice ${empty.length ? "warn" : "info"}">Flex arrangement: each instrument's players are split by chair across the voices printed for that instrument (top chairs on Part 1). A voice nobody would be on gets the lowest-chair player of a section with two or more on a nearby voice.` +
       (empty.length ? ` <b>Nobody is on ${empty.join(" or ")}</b> — that line won't be covered. Type a copy count on one of its rows to assign it.` : "") + `</p>`;
   }
   if (long.length) extra += `<p class="notice warn">${long.map(r => `${esc(r.label)} (${r.pages} pages)`).join(", ")} ${long.length === 1 ? "is" : "are"} much longer than the other parts and may include another part. Check the page map.</p>`;
@@ -2328,6 +2383,49 @@ $("percAll").addEventListener("click", () => { const m = percMap(false); if (m){
 $("percNone").addEventListener("click", () => setPerc(() => false));
 $("percSpread").addEventListener("click", () => setPerc((n, i, r, j, np) => i % np === j));
 
+/* ---------------------------------------------------------------- hand-out list */
+$("handoutBtn").addEventListener("click", async () => {
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const rows = (state.reprintMode ? printRows() : plan().rows).filter(r => r.copies > 0);
+  if (!rows.length) return;
+  const doc = await PDFDocument.create(), font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const safe = s => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E\xA0-\xFF\u2013\u2014\u2019]/g, "");
+  const W = 612, H = 792, M = 48, colPart = 170, colN = 44, size = 10.5, lh = 14;
+  let page = null, y = 0, pageNo = 0;
+  const piece = ($("pieceName").value || "").trim().replace(/^Untitled piece$/, "") || state.fileName.replace(/\.pdf$/i, "");
+  const header = () => {
+    page = doc.addPage([W, H]); pageNo++; y = H - M;
+    page.drawText(safe(piece), { x: M, y, size: 16, font: bold }); y -= 20;
+    page.drawText(safe(`${saved.current}${state.reprintMode ? " — reprint" : ""} — hand-out list — ${new Date().toLocaleDateString()}`), { x: M, y, size: 10, font, color: rgb(.35, .35, .35) });
+    if (pageNo > 1) page.drawText(`page ${pageNo}`, { x: W - M - 40, y, size: 10, font, color: rgb(.35, .35, .35) });
+    y -= 24;
+    page.drawText("Part", { x: M, y, size: 10, font: bold }); page.drawText("Copies", { x: M + colPart, y, size: 10, font: bold }); page.drawText("Students (chair order)", { x: M + colPart + colN + 8, y, size: 10, font: bold });
+    y -= 6; page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: .8, color: rgb(.6, .6, .6) }); y -= 14;
+  };
+  const wrap = (text, width, f) => {
+    const words = safe(text).split(" "), lines = []; let cur = "";
+    for (const w of words){ const t = cur ? cur + " " + w : w; if (f.widthOfTextAtSize(t, size) > width && cur){ lines.push(cur); cur = w; } else cur = t; }
+    if (cur) lines.push(cur); return lines.length ? lines : [""];
+  };
+  header();
+  let total = 0;
+  for (const r of rows){
+    const named = r.print.filter(Boolean), blank = r.print.length - named.length;
+    const who = named.join(", ") + (blank ? `${named.length ? ", " : ""}${blank} without a name` : "");
+    const L = wrap(who, W - 2*M - colPart - colN - 8, font), P = wrap(r.label, colPart - 8, bold);
+    const h = Math.max(L.length, P.length) * lh + 6;
+    if (y - h < M) header();
+    P.forEach((t, i) => page.drawText(t, { x: M, y: y - i * lh, size, font: bold }));
+    page.drawText(String(r.copies), { x: M + colPart + 10, y, size, font });
+    L.forEach((t, i) => page.drawText(t, { x: M + colPart + colN + 8, y: y - i * lh, size, font }));
+    y -= h; page.drawLine({ start: { x: M, y: y + lh - 4 }, end: { x: W - M, y: y + lh - 4 }, thickness: .3, color: rgb(.8, .8, .8) });
+    total += r.copies;
+  }
+  if (y - 20 < M) header();
+  page.drawText(`${total} part copies`, { x: M, y: y - 6, size: 10, font: bold });
+  downloadBytes(await doc.save(), `${piece} - ${saved.current} - HAND-OUT LIST.pdf`);
+});
+
 /* ---------------------------------------------------------------- check before printing */
 function preflight(rows){
   const out = [], ros = roster(), en = saved.current, mute = (saved.preflightMute || {})[en] || {};
@@ -2401,41 +2499,57 @@ $("resetOverrides").addEventListener("click", () => { state.starts.forEach(s => 
 // embeds a separate font for nearly every word — often hundreds per set. Many copiers run out of font
 // memory part-way through such a job and stop printing. That layer is never visible on paper, so it is
 // removed from the print file. Text that is actually drawn (e.g. engraved music) is never touched.
-function dropTextBlocks(d){
-  const n = d.length, out = []; let i = 0, keep = 0, inText = false;
+// Drops only text drawn invisibly (render mode 3 — the "searchable" layer scanners add). Visible text is kept.
+// st carries the text render mode and the q/Q stack across the parts of a page's content.
+function dropTextBlocks(d, st){
+  st = st || { mode: 0, stack: [] };
+  const n = d.length, out = []; let i = 0, keep = 0, inText = false, btAt = 0, blockVisible = false, shows = 0, lastNum = null, dropped = 0, kept = 0;
   const delim = c => c <= 32 || c === 40 || c === 41 || c === 60 || c === 62 || c === 91 || c === 93 || c === 123 || c === 125 || c === 47 || c === 37;
   while (i < n){
     const c = d[i];
-    if (c === 40){ let depth = 1; i++; while (i < n && depth){ if (d[i] === 92){ i += 2; continue; } if (d[i] === 40) depth++; else if (d[i] === 41) depth--; i++; } continue; }
-    if (c === 60 && d[i+1] !== 60){ while (i < n && d[i] !== 62) i++; i++; continue; }
+    if (c === 40){ let depth = 1; i++; while (i < n && depth){ if (d[i] === 92){ i += 2; continue; } if (d[i] === 40) depth++; else if (d[i] === 41) depth--; i++; } lastNum = null; continue; }
+    if (c === 60 && d[i+1] !== 60){ while (i < n && d[i] !== 62) i++; i++; lastNum = null; continue; }
     if (c === 37){ while (i < n && d[i] !== 10 && d[i] !== 13) i++; continue; }
     if (!delim(c)){
       let j = i; while (j < n && !delim(d[j])) j++;
-      if (j - i === 2){
-        if (d[i] === 66 && d[i+1] === 84 && !inText){ out.push(d.subarray(keep, i)); inText = true; }
-        else if (d[i] === 69 && d[i+1] === 84 && inText){ inText = false; keep = j; }
+      const L = j - i, a = d[i], b = d[i+1];
+      if (L === 2 && a === 66 && b === 84 && !inText){ inText = true; btAt = i; blockVisible = false; shows = 0; }
+      else if (L === 2 && a === 69 && b === 84 && inText){
+        inText = false;
+        // drop a block only if it draws text and all of it is invisible; blocks that only set fonts stay
+        if (blockVisible) kept++;
+        else if (shows || st.dropAll){ out.push(d.subarray(keep, btAt)); keep = j; dropped++; }
       }
+      else if (L === 2 && a === 84 && b === 114){ if (lastNum !== null) st.mode = lastNum; }
+      else if (inText && ((L === 2 && a === 84 && (b === 106 || b === 74)) || (L === 1 && (a === 39 || a === 34)))){ shows++; if (st.mode !== 3) blockVisible = true; }
+      else if (L === 1 && a === 113) st.stack.push(st.mode);
+      else if (L === 1 && a === 81){ if (st.stack.length) st.mode = st.stack.pop(); }
+      let num = true; for (let k = i; k < j; k++){ const ch = d[k]; if (!((ch >= 48 && ch <= 57) || ch === 46 || ch === 45 || ch === 43)){ num = false; break; } }
+      lastNum = num ? parseFloat(String.fromCharCode.apply(null, d.subarray(i, j))) : null;
       i = j; continue;
     }
     i++;
   }
-  if (!inText) out.push(d.subarray(keep));
-  const res = new Uint8Array(out.reduce((s, a) => s + a.length, 0)); let o = 0; for (const a of out){ res.set(a, o); o += a.length; }
-  return res;
+  out.push(d.subarray(keep));
+  if (inText && !blockVisible) kept++;     // unterminated block: leave it alone
+  const res = new Uint8Array(out.reduce((s, x) => s + x.length, 0)); let o = 0; for (const x of out){ res.set(x, o); o += x.length; }
+  return { bytes: res, dropped, kept };
 }
-function onlyInvisibleText(bytes){
-  let s = ""; for (let i = 0; i < bytes.length; i += 65536) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 65536));
-  const modes = [...s.matchAll(/(?:^|[^\w.])(\d)\s+Tr\b/g)].map(m => m[1]);
-  return modes.length > 0 && modes.every(m => m === "3");
+// keep only the fonts the remaining text still uses
+function pruneFonts(res, chunks, PDFName, PDFDict){
+  const fonts = res && res.lookup(PDFName.of("Font"));
+  if (!(fonts instanceof PDFDict)) return;
+  let s = ""; for (const b of chunks) for (let i = 0; i < b.length; i += 65536) s += String.fromCharCode.apply(null, b.subarray(i, i + 65536));
+  const used = new Set([...s.matchAll(/\/([^\s\/\[\]()<>{}%]+)\s+[-\d.]+\s+Tf\b/g)].map(m => m[1]));
+  for (const [k] of fonts.entries()) if (!used.has(k.asString().slice(1))) fonts.delete(k);
 }
 function stripHiddenText(doc){
   const { PDFName, PDFRawStream, PDFArray, PDFDict, decodePDFRawStream } = PDFLib, ctx = doc.context;
   const done = new Set(); let fixed = 0;
-  const rewrite = (stream, bytes) => {
-    const z = ctx.flateStream(dropTextBlocks(bytes));
+  const write = (stream, bytes) => {
+    const z = ctx.flateStream(bytes);
     stream.contents = z.contents;
     stream.dict.set(PDFName.of("Filter"), PDFName.of("FlateDecode")); stream.dict.delete(PDFName.of("DecodeParms"));
-    fixed++;
   };
   const decode = st => { try { return decodePDFRawStream(st).decode(); } catch (e) { return null; } };
   const forms = res => {
@@ -2447,8 +2561,13 @@ function stripHiddenText(doc){
       if (String(st.dict.get(PDFName.of("Subtype"))) !== "/Form") continue;
       const fres = st.dict.lookup(PDFName.of("Resources"));
       forms(fres);
-      const b = decode(st);
-      if (b && onlyInvisibleText(b)){ rewrite(st, b); if (fres instanceof PDFDict) fres.delete(PDFName.of("Font")); }
+      const b = decode(st); if (!b) continue;
+      let r = dropTextBlocks(b);
+      if (!r.dropped) continue;
+      if (!r.kept) r = dropTextBlocks(b, { mode: 0, stack: [], dropAll: true });   // no visible text left: drop font-only blocks too
+      write(st, r.bytes); fixed++;
+      if (!r.kept && fres instanceof PDFDict) fres.delete(PDFName.of("Font"));
+      else if (fres instanceof PDFDict) pruneFonts(fres, [r.bytes], PDFName, PDFDict);
     }
   };
   for (const page of doc.getPages()){
@@ -2457,13 +2576,17 @@ function stripHiddenText(doc){
     const c = page.node.get(PDFName.of("Contents")), parts = [];
     const one = ctx.lookup(c);
     if (one instanceof PDFArray) one.asArray().forEach(r => parts.push(ctx.lookup(r))); else if (one) parts.push(one);
-    const decoded = parts.map(st => (st instanceof PDFRawStream && !done.has(st)) ? decode(st) : null);
-    if (!decoded.length || decoded.some(b => !b)) continue;
-    const all = decoded.reduce((s, b) => s + b.length, 0), joined = new Uint8Array(all + decoded.length); let o = 0;
-    decoded.forEach(b => { joined.set(b, o); o += b.length + 1; joined[o - 1] = 10; });
-    if (!onlyInvisibleText(joined)) continue;
-    parts.forEach((st, k) => { done.add(st); rewrite(st, decoded[k]); });
-    if (res) res.delete(PDFName.of("Font"));
+    if (!parts.length || parts.some(s => !(s instanceof PDFRawStream) || done.has(s))) continue;
+    const decoded = parts.map(decode);
+    if (decoded.some(b => !b)) continue;
+    const st = { mode: 0, stack: [] };
+    let results = decoded.map(b => dropTextBlocks(b, st));
+    if (!results.some(r => r.dropped)) continue;
+    if (!results.some(r => r.kept)){ const s2 = { mode: 0, stack: [], dropAll: true }; results = decoded.map(b => dropTextBlocks(b, s2)); }
+    parts.forEach((s, k) => { done.add(s); if (results[k].dropped) write(s, results[k].bytes); });
+    fixed++;
+    if (res && !results.some(r => r.kept)) res.delete(PDFName.of("Font"));
+    else if (res && !(res.lookup(PDFName.of("XObject")) instanceof PDFDict)) pruneFonts(res, results.map(r => r.bytes), PDFName, PDFDict);   // forms may borrow page fonts
   }
   return fixed;
 }

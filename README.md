@@ -69,6 +69,11 @@ Step 4 stops you before downloading when something looks off, and you tick "I've
 
 The chair and roster-age warnings can be turned off per ensemble (e.g. a 6th grade band with no chairs).
 
+### Hand-out list
+
+**Hand-out list** (next to Download print PDF) saves a one-page PDF listing every part that prints and the students
+who get it, in chair order — for passing out music and for a last check before the copier runs.
+
 ### Saving pieces
 
 Under **Keep this piece** (step 4):
@@ -138,7 +143,8 @@ rosters contains student names — keep it in your school account.
   instrument's players are split by chair across the voices printed for that instrument — top chairs on Part 1.
   When a part doesn't list instruments, the key decides (C: flute/oboe; B♭: clarinet, trumpet, tenor sax,
   baritone T.C.; E♭: alto/bari sax; F: horn; bass clef: trombone, euphonium, bassoon, plus tuba on Parts 4–5).
-- If nobody ends up on a voice (e.g. Part 5 with no tubas), the tool warns you so the line isn't left uncovered.
+- If nobody ends up on a voice (e.g. Part 5 with no tubas), the lowest-chair player of a section with two or more on a
+  nearby voice is moved to cover it (the row says who moved). If nobody can be moved, the tool warns you.
 
 ## Default print rules (change under "Print rules")
 
@@ -162,6 +168,11 @@ rosters contains student names — keep it in your school account.
 3. Settings → Pages → Build and deployment → Source: *Deploy from a branch* →
    Branch: `main`, folder `/ (root)` → Save.
 4. After a minute or two the tool is live at `https://<username>.github.io/part-copier/`.
+
+## Tests
+
+`python3 tests/make_fixtures.py` builds made-up test PDFs and rosters; `python3 tests/run_tests.py` runs the
+checks in a headless browser (needs Playwright with Chromium, pypdf, reportlab, Pillow). Run them before every change.
 
 ## Limitations
 
