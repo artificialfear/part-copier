@@ -29,7 +29,7 @@ tested locally, never committed.
 - Google Identity Services token client (loaded from accounts.google.com — can't be bundled), scope spreadsheets.readonly,
   token kept in sessionStorage (~1 h). Config in saved.bn {clientId, sheetId, tab}, saved.bnLinks[ensemble] = table title.
   bnParse finds each Name|Instrument|Chair header and uses the cell above as the title. Setup file carries bn + bnLinks.
-- Mat's Cloud project/client ID: set up by Mat (see README). Consent screen stays in Testing; colleagues must be test users.
+- Mat's Cloud project "Part Copier" (project number 224291250382, owner mathew.t.graham@gmail.com) is set up and connected (2026-11-01). Sheets API enabled. Consent screen stays in Testing; colleagues must be test users.
 
 ## Open items
 - none
