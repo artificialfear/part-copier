@@ -130,6 +130,11 @@ tr.jump td{animation:jump 1.6s ease-out}
 .rp .n{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}
 .rp input[type=number]{width:56px}
 td .link.rep{display:block;padding:2px 0;margin-top:2px;font-size:12.5px}
+.sheet-link{margin-top:10px}
+.sheet-link.on{padding-top:10px;border-top:1px solid var(--line)}
+.sheet-link .fld{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);margin:8px 0}
+.sheet-link .fld input{font-size:14px}
+.sheet-link select{max-width:100%;min-width:0}
 .perc-box{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
 .perc-grid th,.perc-grid td{text-align:center;padding:6px 8px;white-space:nowrap}
 .perc-grid th:first-child,.perc-grid td:first-child{text-align:left}
@@ -1027,6 +1032,7 @@ function renderRoster(){
       </div>
       ${v.notes.length ? `<ul class="roster-notes">${v.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
       <p class="note" style="margin:8px 0 0">Names are saved only in this browser. On a shared computer, click Forget roster when you're done.</p>
+      ${sheetPanel()}
       ${importPanel()}
     </div>`;
   } else {
@@ -1036,10 +1042,157 @@ function renderRoster(){
           <span>Import names to print one named copy per student, with split parts assigned by chair.</span></div>
         <button type="button" id="rosterOpenBtn">Import roster</button>
       </div>
+      ${sheetPanel()}
       ${importPanel()}
     </div>`;
   }
 }
+/* ---------------------------------------------------------------- live roster from a Google Sheet (Band Ninja) */
+// Reads one tab with the signed-in teacher's own Google access (read-only). Nothing is published or shared;
+// the sheet stays private. Each ensemble is linked to one table on the tab (a "Name | Instrument | Chair" block
+// with a title above it, e.g. "7th Grade (3rd + 4th Block)").
+const BN_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
+const bnCfg = () => saved.bn || null;
+const bnLink = () => ((saved.bnLinks || {})[saved.current]) || "";
+let bnToken = null, bnTables = null, bnBusy = false;
+try { const t = JSON.parse(sessionStorage.getItem("partCopier.bnToken") || "null"); if (t && t.exp > Date.now() + 60000) bnToken = t; } catch (e) {}
+const sheetIdFrom = s => { const m = String(s || "").match(/\/d\/([a-zA-Z0-9_-]{20,})/) || String(s || "").trim().match(/^([a-zA-Z0-9_-]{20,})$/); return m ? m[1] : null; };
+function sheetPanel(){
+  const cfg = bnCfg(), link = bnLink(), ros = roster();
+  if (!cfg) return `<details class="settings sheet-link" ${saved.bnOpen ? "open" : ""}><summary>Pull the roster from a Google Sheet instead of pasting</summary>
+    <p class="hint">Connect your roster spreadsheet (e.g. Band Ninja's Part Copier Roster tab). You sign in with Google; the sheet stays private and is only read, never changed.</p>
+    <label class="fld">Google sign-in client ID <input type="text" id="bnClient" placeholder="1234…apps.googleusercontent.com" value="${esc(saved.bnClientDraft || "")}"></label>
+    <label class="fld">Spreadsheet link <input type="text" id="bnSheet" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
+    <label class="fld">Tab name <input type="text" id="bnTab" value="Part Copier Roster"></label>
+    <div class="row"><button type="button" class="primary" id="bnConnect">Connect</button></div>
+    <div class="roster-msg" id="bnMsg"></div></details>`;
+  const opts = (bnTables || (link ? [link] : [])).map(t => `<option ${t === link ? "selected" : ""}>${esc(t)}</option>`).join("");
+  const pulled = ros && ros.source === "sheet" ? `Pulled from the sheet ${timeAgo(ros.imported)}` : link ? "Not pulled yet for this ensemble" : "";
+  return `<div class="sheet-link on">
+    <div class="row" style="align-items:center">
+      <b>Google Sheet:</b>
+      <select id="bnTable" aria-label="Table for this ensemble"><option value="">${bnTables ? "— pick the table for " + esc(saved.current) + " —" : link ? "" : "— click Load tables —"}</option>${opts}</select>
+      ${bnTables ? "" : `<button type="button" id="bnLoad">Load tables</button>`}
+      <button type="button" class="primary" id="bnPull" ${link ? "" : "disabled"}>Pull roster now</button>
+      <button type="button" class="link" id="bnDisconnect">Disconnect</button>
+    </div>
+    <div class="roster-msg" id="bnMsg">${esc(pulled)}</div>
+  </div>`;
+}
+function timeAgo(iso){
+  const ms = Date.now() - new Date(iso); if (isNaN(ms)) return "";
+  const m = Math.round(ms / 60000);
+  return m < 2 ? "just now" : m < 90 ? `${m} minutes ago` : m < 36 * 60 ? `${Math.round(m / 60)} hours ago` : `${Math.round(m / 1440)} days ago`;
+}
+function bnMsg(t, err){ const el = $("bnMsg"); if (el){ el.className = "roster-msg" + (err ? " err" : ""); el.textContent = t; } }
+async function bnAuth(interactive){
+  if (bnToken && bnToken.exp > Date.now() + 60000) return bnToken.token;
+  if (!interactive) return null;
+  const cfg = bnCfg(); if (!cfg) throw new Error("not connected");
+  if (!(window.google && google.accounts && google.accounts.oauth2)) await loadScript("https://accounts.google.com/gsi/client");
+  return new Promise((resolve, reject) => {
+    const client = google.accounts.oauth2.initTokenClient({ client_id: cfg.clientId, scope: BN_SCOPE,
+      callback: r => {
+        if (r.error){ reject(new Error(r.error_description || r.error)); return; }
+        bnToken = { token: r.access_token, exp: Date.now() + (r.expires_in || 3600) * 1000 };
+        try { sessionStorage.setItem("partCopier.bnToken", JSON.stringify(bnToken)); } catch (e) {}
+        resolve(bnToken.token);
+      },
+      error_callback: e => reject(new Error(e && e.type === "popup_closed" ? "the Google sign-in window was closed" : (e && (e.message || e.type)) || "sign-in failed")) });
+    client.requestAccessToken({ prompt: cfg.consented ? "" : "consent" });
+  });
+}
+async function bnFetch(interactive){
+  const cfg = bnCfg(), token = await bnAuth(interactive);
+  if (!token) return null;
+  const range = encodeURIComponent(`'${cfg.tab.replace(/'/g, "''")}'!A1:Z400`);
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${cfg.sheetId}/values/${range}?valueRenderOption=FORMATTED_VALUE`, { headers: { Authorization: "Bearer " + token } });
+  if (res.status === 401){ bnToken = null; try { sessionStorage.removeItem("partCopier.bnToken"); } catch (e) {} if (interactive) return bnFetch(true); return null; }
+  if (!res.ok){
+    const j = await res.json().catch(() => ({})), msg = (j.error && j.error.message) || res.statusText;
+    throw new Error(res.status === 403 ? "this Google account can't open that sheet (" + msg + ")" : res.status === 404 ? "sheet not found — check the link" : /Unable to parse range/i.test(msg) ? `there's no tab named "${cfg.tab}"` : msg);
+  }
+  if (!cfg.consented){ cfg.consented = true; persist(); }
+  return (await res.json()).values || [];
+}
+// every "Name | Instrument | Chair" block on the tab, keyed by the title above it
+function bnParse(values){
+  const out = {};
+  for (let r = 0; r < values.length; r++){
+    const row = values[r] || [];
+    for (let c = 0; c < row.length; c++){
+      if (String(row[c]).trim().toLowerCase() !== "name" || !/^instrument$/i.test(String(row[c+1] || "").trim())) continue;
+      const above = ((values[r-1] || [])[c] || "").toString().trim();
+      let title = above || `Table at column ${String.fromCharCode(65 + c)}`, k = 2;
+      while (out[title]) title = `${above || "Table"} (${k++})`;
+      const lines = ["Name\tInstrument\tChair"];
+      for (let i = r + 1; i < values.length; i++){
+        const v = values[i] || [], name = String(v[c] || "").trim();
+        if (!name){ if (!String(v[c+1] || "").trim()) break; else continue; }
+        lines.push([name, v[c+1] || "", v[c+2] || ""].map(x => String(x).replace(/[\t\n]/g, " ")).join("\t"));
+      }
+      out[title] = lines.join("\n");
+    }
+  }
+  return out;
+}
+async function bnPull(interactive, quiet){
+  if (bnBusy) return false;
+  const link = bnLink(); if (!bnCfg() || !link) return false;
+  bnBusy = true;
+  try {
+    if (!quiet) bnMsg("Reading the sheet…");
+    const values = await bnFetch(interactive); if (!values) return false;
+    const tables = bnParse(values); bnTables = Object.keys(tables);
+    if (!tables[link]) throw new Error(`the table "${link}" isn't on the tab anymore — pick it again`);
+    const res = importRoster(tables[link]);
+    if (res.error) throw new Error(res.error);
+    const prev = roster();
+    if (prev && prev.names === false) res.roster.names = false;
+    res.roster.source = "sheet";
+    saved.rosters = saved.rosters || {}; saved.rosters[saved.current] = res.roster;
+    syncCountsFromRoster(); persist(); renderEnsemble(); refresh();
+    bnMsg(`Pulled ${res.roster.students.length} students from the sheet just now.`);
+    return true;
+  } catch (err) { bnMsg("Couldn't read the sheet: " + (err && err.message || err) + ".", true); return false; }
+  finally { bnBusy = false; }
+}
+$("rosterBox").addEventListener("click", async e => {
+  const id = e.target.id;
+  if (id === "bnConnect"){
+    const clientId = $("bnClient").value.trim(), sheetId = sheetIdFrom($("bnSheet").value), tab = $("bnTab").value.trim() || "Part Copier Roster";
+    if (!/\.apps\.googleusercontent\.com$/.test(clientId)) return bnMsg("The client ID should end in .apps.googleusercontent.com.", true);
+    if (!sheetId) return bnMsg("Paste the spreadsheet's link from your browser's address bar.", true);
+    saved.bn = { clientId, sheetId, tab }; persist();
+    try {
+      const values = await bnFetch(true); bnTables = Object.keys(bnParse(values));
+      if (!bnTables.length) throw new Error(`no Name / Instrument / Chair table found on "${tab}"`);
+      renderRoster(); bnMsg(`Connected — found ${bnTables.length} table${bnTables.length === 1 ? "" : "s"}. Pick the one for ${saved.current}.`);
+    } catch (err) { saved.bn = null; saved.bnClientDraft = clientId; persist(); renderRoster(); bnMsg("Couldn't connect: " + (err && err.message || err) + ".", true); }
+  }
+  if (id === "bnLoad"){
+    try { const values = await bnFetch(true); bnTables = Object.keys(bnParse(values)); renderRoster(); }
+    catch (err) { bnMsg("Couldn't read the sheet: " + (err && err.message || err) + ".", true); }
+  }
+  if (id === "bnPull") bnPull(true);
+  if (id === "bnDisconnect"){
+    if (!confirm("Disconnect the Google Sheet? Rosters already pulled stay until you replace or forget them.")) return;
+    try { if (bnToken && window.google && google.accounts) google.accounts.oauth2.revoke(bnToken.token, () => {}); } catch (err) {}
+    saved.bn = null; saved.bnLinks = {}; bnToken = null; bnTables = null;
+    try { sessionStorage.removeItem("partCopier.bnToken"); } catch (err) {}
+    persist(); renderRoster();
+  }
+});
+$("rosterBox").addEventListener("change", e => {
+  if (e.target.id === "bnTable"){
+    saved.bnLinks = saved.bnLinks || {};
+    if (e.target.value) saved.bnLinks[saved.current] = e.target.value; else delete saved.bnLinks[saved.current];
+    persist(); renderRoster();
+    if (e.target.value) bnPull(true);
+  }
+});
+$("rosterBox").addEventListener("toggle", e => { if (e.target.classList && e.target.classList.contains("sheet-link")){ saved.bnOpen = e.target.open; } }, true);
+
 function importPanel(){
   return `<div class="roster-import" ${rosterOpen ? "" : "hidden"}>
     <ol>
@@ -1106,7 +1259,7 @@ $("countGrid").addEventListener("click", e => {
 // the folded step 1 keeps a working ensemble picker in its heading
 ["click", "keydown", "mousedown"].forEach(t => $("ensQuick").addEventListener(t, e => e.stopPropagation()));
 $("ensQuick").addEventListener("change", e => { $("ensSelect").value = e.target.value; $("ensSelect").dispatchEvent(new Event("change")); });
-$("ensSelect").addEventListener("change", e => { saved.current = e.target.value; rosterOpen = false; persist(); renderEnsemble(); refresh(); });
+$("ensSelect").addEventListener("change", e => { saved.current = e.target.value; rosterOpen = false; persist(); renderEnsemble(); refresh(); if (bnCfg() && bnLink()) bnPull(false, true); });
 $("ensNew").addEventListener("click", () => {
   const name = (prompt("Name for the new ensemble (e.g. 7th Grade Band):") || "").trim();
   if (!name) return;
@@ -1138,7 +1291,7 @@ $("syncSave").addEventListener("click", () => {
   const ensembles = Object.fromEntries((keep.length ? keep : Object.keys(saved.ensembles)).map(n => [n, saved.ensembles[n]]));
   const data = { app: "part-copier", version: 1, exported: new Date().toISOString(),
     settings: saved.settings, ensembles, current: saved.current,
-    rosters: withRosters ? (saved.rosters || {}) : {}, theme };
+    rosters: withRosters ? (saved.rosters || {}) : {}, theme, bn: saved.bn || null, bnLinks: saved.bnLinks || {} };
   const d = new Date(), stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: "application/json" }));
@@ -1173,6 +1326,7 @@ $("syncLoad").addEventListener("change", async e => {
       try { localStorage.setItem("partCopier.theme", data.theme); } catch (err) {}
       document.documentElement.setAttribute("data-theme", data.theme); paintThemeToggle();
     }
+    if (data.bn && data.bn.sheetId){ saved.bn = data.bn; saved.bnLinks = Object.assign({}, saved.bnLinks || {}, data.bnLinks || {}); }
     persist(); renderEnsemble(); renderSettings(); renderCleanSettings(); refresh();
     $("syncStatus").textContent = `Loaded ${names.length} ensemble${names.length === 1 ? "" : "s"}${r ? ` and ${r} roster${r === 1 ? "" : "s"}` : ""} from ${f.name}.`;
   } catch (err) {
@@ -1378,6 +1532,7 @@ async function openFile(file, opts = {}){
     $("clPreviewPage").max = state.numPages;
     refresh();
     readPageImages();
+    if (bnCfg() && bnLink()) bnPull(false, true);     // fresh roster if Google sign-in is still active
     if (!opts.cleaned && !opts.keepReprint){
       // done with steps 1–2; a saved piece needs no checking, so go straight to printing
       setFold("s1", true, false);
@@ -2448,7 +2603,10 @@ function preflight(rows){
       }
     }
     const days = ros.imported ? Math.floor((Date.now() - new Date(ros.imported)) / 86400000) : null;
-    if (days !== null && days > 14 && !mute.stale) out.push({ id: "stale", text: `The roster was imported ${days} days ago.`, why: "New students, drops and chair changes since then won't be in this print. Re-copy it from Band Ninja (Replace roster).", mutable: true });
+    const hours = ros.imported ? (Date.now() - new Date(ros.imported)) / 3600000 : null;
+    if (bnCfg() && bnLink() && hours !== null && hours > 12)
+      out.push({ id: "pull", text: `The roster was last pulled from the Google Sheet ${timeAgo(ros.imported)}.`, why: "Pull it again to pick up chair changes, new students and drops.", pull: true });
+    else if (days !== null && days > 14 && !mute.stale) out.push({ id: "stale", text: `The roster was imported ${days} days ago.`, why: "New students, drops and chair changes since then won't be in this print. Re-copy it from Band Ninja (Replace roster).", mutable: true });
     if (ros.skipped && ros.skipped.length) out.push({ id: "skipped", text: `Not on any part: ${ros.skipped.join("; ")}.`, why: "These rows in the roster had no recognizable instrument, so they get no music. Fix the instrument in Band Ninja and re-copy the roster." });
   }
   const gaps = state.percGaps;
@@ -2463,11 +2621,12 @@ function renderPreflight(warns){
   if (sig !== state.preflightSig){ state.preflightSig = sig; state.preflightOk = false; }
   if (!warns.length){ box.hidden = true; box.innerHTML = ""; return; }
   box.hidden = false;
-  box.innerHTML = `<b class="h">Check before printing</b><ul>${warns.map(w => `<li>${esc(w.text)}<div class="why">${esc(w.why)}${w.mutable ? ` <button type="button" class="link mute" data-mute="${w.id}">Don't warn about this for ${esc(saved.current)}</button>` : ""}</div></li>`).join("")}</ul>
+  box.innerHTML = `<b class="h">Check before printing</b><ul>${warns.map(w => `<li>${esc(w.text)}<div class="why">${esc(w.why)}${w.pull ? ` <button type="button" class="link mute" data-pull="1">Pull roster now</button>` : ""}${w.mutable ? ` <button type="button" class="link mute" data-mute="${w.id}">Don't warn about this for ${esc(saved.current)}</button>` : ""}</div></li>`).join("")}</ul>
     <label class="ack"><input type="checkbox" id="preflightAck" ${state.preflightOk ? "checked" : ""}> I've checked these — let me download</label>`;
 }
 $("preflight").addEventListener("change", e => { if (e.target.id === "preflightAck"){ state.preflightOk = e.target.checked; $("buildBtn").disabled = !state.preflightOk; } });
 $("preflight").addEventListener("click", e => {
+  if (e.target.closest("[data-pull]")){ bnPull(true); return; }
   const b = e.target.closest("[data-mute]"); if (!b) return;
   saved.preflightMute = saved.preflightMute || {};
   (saved.preflightMute[saved.current] = saved.preflightMute[saved.current] || {})[b.dataset.mute] = true;

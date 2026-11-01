@@ -119,6 +119,29 @@ fine) — or upload a CSV. Then:
   Uncheck **Print names on parts** to use the roster for counts only.
 - Rosters are saved only in that browser. On shared computers, use **Forget roster**.
 
+### Pull the roster straight from a Google Sheet (optional)
+
+Instead of pasting, connect the spreadsheet once under **Pull the roster from a Google Sheet instead of pasting**
+(step 1): your Google sign-in client ID (see "Setting up Google sign-in" below), the spreadsheet link, and the tab
+name (default *Part Copier Roster*). The tool finds every *Name / Instrument / Chair* table on that tab, by the
+title above it; pick the one for each ensemble. After that:
+
+- **Pull roster now** re-reads it any time. While you're signed in (about an hour), opening a PDF or switching
+  ensembles pulls the latest roster automatically.
+- Step 4 warns when the roster hasn't been pulled in the last 12 hours and offers **Pull roster now**.
+- Access is read-only, with your own Google account. The sheet stays private — nothing is published or shared.
+
+#### Setting up Google sign-in (once, about 15 minutes)
+
+1. Go to console.cloud.google.com with the Google account that owns the sheet → create a project ("Part Copier").
+2. APIs & Services → Library → **Google Sheets API** → Enable.
+3. APIs & Services → OAuth consent screen → External → app name "Part Copier", your email → Save. Leave it in
+   **Testing** and add your own email under **Test users** (and any colleague who will use it).
+4. APIs & Services → Credentials → Create credentials → **OAuth client ID** → Web application →
+   Authorized JavaScript origins: `https://<username>.github.io` → Create. Copy the client ID.
+5. Paste it into the tool. The first sign-in shows Google's "this app isn't verified" screen (expected for a
+   personal test app) → Continue.
+
 ### Moving your setup to another computer
 
 Everything is saved in the browser you set it up in. Open **Use this setup on another

@@ -1,5 +1,9 @@
 # Part Copier changelog
 
+## 2026-11-01 (evening)
+- Pull the roster straight from a Google Sheet (read-only Google sign-in); auto-refresh on open while signed in;
+  step 4 offers a pull when the roster is over 12 hours old.
+
 ## 2026-11-01 (later)
 - Scans and ePrints read about 40% faster (two readers, repeated copies read once, time-left estimate).
 - Hand-out list PDF: each part and its students in chair order.

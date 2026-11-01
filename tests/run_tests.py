@@ -116,12 +116,26 @@ def t_scan(pg):
     fresh(pg); load(pg, "scan.pdf", ocr=True); L = labels(pg)
     check("scan: parts read from page images, 2-page parts kept", L == ["1–2 Flute", "3–4 Clarinet 1", "5–6 Trumpet", "7–8 Trombone", "9–10 Percussion"], L)
 
+def t_sheet(pg):
+    import json
+    vals = {"values": [["title"], ["8th Grade (1st Block)", "", "", "", "7th Grade (3rd + 4th Block)"], ["Name", "Instrument", "Chair", "", "Name", "Instrument", "Chair"],
+                       ["Adams, Ava", "Flute", "1", "", "Gray, Gus", "Trumpet", "1"], ["", "", "", "", "Hill, Hana", "Trumpet", "2"]]}
+    gis = "window.google={accounts:{oauth2:{initTokenClient:o=>({requestAccessToken:()=>setTimeout(()=>o.callback({access_token:'t',expires_in:3600}),5)}),revoke:(t,c)=>c&&c()}}};"
+    pg.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(status=200, content_type="text/javascript", body=gis))
+    pg.route("https://sheets.googleapis.com/**", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(vals)))
+    fresh(pg); pg.evaluate("sessionStorage.clear()"); pg.evaluate("openStep('s1')"); pg.click(".sheet-link summary")
+    pg.fill("#bnClient", "1-x.apps.googleusercontent.com"); pg.fill("#bnSheet", "https://docs.google.com/spreadsheets/d/AAAAAAAAAAAAAAAAAAAAAAAAAAAA/edit"); pg.click("#bnConnect"); pg.wait_for_timeout(400)
+    check("sheet: tables found on the tab", pg.eval_on_selector_all("#bnTable option", "l=>l.map(o=>o.text)")[1:] == ["8th Grade (1st Block)", "7th Grade (3rd + 4th Block)"])
+    pg.select_option("#bnTable", "7th Grade (3rd + 4th Block)"); pg.wait_for_timeout(400)
+    check("sheet: picking a table pulls the roster", pg.evaluate("counts().Trumpet") == 2 and pg.evaluate("roster().source") == "sheet")
+    pg.unroute("https://accounts.google.com/gsi/client"); pg.unroute("https://sheets.googleapis.com/**")
+
 with sync_playwright() as p:
     b = p.chromium.launch(channel="chromium")
     ctx = b.new_context(accept_downloads=True, viewport={"width": 1100, "height": 900}); pg = ctx.new_page()
     pg.on("pageerror", lambda e: page_errors.append(str(e)))
     only = sys.argv[1:]
-    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_scan]:
+    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_scan]:
         if only and t.__name__[2:] not in only: continue
         try: t(pg)
         except Exception as e: check(t.__name__ + " ran", False, traceback.format_exc(limit=2))

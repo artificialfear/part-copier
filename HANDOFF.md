@@ -25,8 +25,14 @@ detection, chair splits, copies, flex + auto-cover, marching, hidden-text strip,
 percussion grid, reprint, hand-out list). Run both before committing. Real copyrighted sets are only
 tested locally, never committed.
 
+## Google Sheet roster (built 2026-11-01)
+- Google Identity Services token client (loaded from accounts.google.com — can't be bundled), scope spreadsheets.readonly,
+  token kept in sessionStorage (~1 h). Config in saved.bn {clientId, sheetId, tab}, saved.bnLinks[ensemble] = table title.
+  bnParse finds each Name|Instrument|Chair header and uses the cell above as the title. Setup file carries bn + bnLinks.
+- Mat's Cloud project/client ID: set up by Mat (see README). Consent screen stays in Testing; colleagues must be test users.
+
 ## Open items
-3. Pull roster from Band Ninja directly (Google sign-in; needs a Google Cloud OAuth client). On hold at Mat's request (2026-11-01).
+- none
 
 ## Decisions
 - concert-copies skill retired (2026-11-01); the web tool is the only path.
