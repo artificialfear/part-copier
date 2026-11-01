@@ -1110,6 +1110,7 @@ async function bnFetch(interactive){
   if (res.status === 401){ bnToken = null; try { sessionStorage.removeItem("partCopier.bnToken"); } catch (e) {} if (interactive) return bnFetch(true); return null; }
   if (!res.ok){
     const j = await res.json().catch(() => ({})), msg = (j.error && j.error.message) || res.statusText;
+    if (/has not been used|is disabled|SERVICE_DISABLED/i.test(msg)) throw new Error("the Google Sheets API isn't turned on in your Google Cloud project yet. Enable it (Google Cloud → APIs & Services → Library → Google Sheets API → Enable), wait a minute, then try again");
     throw new Error(res.status === 403 ? "this Google account can't open that sheet (" + msg + ")" : res.status === 404 ? "sheet not found — check the link" : /Unable to parse range/i.test(msg) ? `there's no tab named "${cfg.tab}"` : msg);
   }
   if (!cfg.consented){ cfg.consented = true; persist(); }
