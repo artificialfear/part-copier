@@ -130,6 +130,20 @@ tr.jump td{animation:jump 1.6s ease-out}
 .rp .n{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}
 .rp input[type=number]{width:56px}
 td .link.rep{display:block;padding:2px 0;margin-top:2px;font-size:12.5px}
+.perc-box{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.perc-grid th,.perc-grid td{text-align:center;padding:6px 8px;white-space:nowrap}
+.perc-grid th:first-child,.perc-grid td:first-child{text-align:left}
+.perc-grid th{font-size:12.5px;font-weight:600;color:var(--muted)}
+.perc-grid td.cnt{color:var(--muted);font-size:12.5px}
+.perc-grid input{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+.perc-grid tr.none td:first-child{color:var(--warn)}
+.preflight{margin-top:14px;border:1px solid var(--warn);border-radius:10px;padding:12px 14px;background:color-mix(in srgb, var(--warn) 10%, transparent)}
+.preflight b.h{display:block;margin-bottom:6px;color:var(--warn)}
+.preflight ul{margin:0 0 8px;padding-left:20px}
+.preflight li{margin:3px 0}
+.preflight li .why{color:var(--muted);font-size:13px}
+.preflight .ack{display:flex;gap:8px;align-items:center;font-weight:600}
+.preflight .mute{font-size:12.5px;margin-left:6px}
 .lib-list{list-style:none;margin:6px 0 0;padding:0;max-width:720px}
 .lib-list li{display:flex;align-items:center;gap:10px;padding:8px 10px 8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--field);margin-top:6px}
 .lib-list .ln{flex:1;min-width:0}
@@ -347,6 +361,17 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
     <div class="row" style="margin-top:10px">
       <button class="link" id="resetOverrides">Reset all hand-edited copy counts</button>
     </div>
+    <div id="percBox" class="perc-box" hidden>
+      <div class="rules-group">Who plays which percussion part</div>
+      <p class="hint" style="margin:0 0 8px">Tick the parts each student plays in this piece — they only get copies of those. Untouched, every percussionist gets every part. Saved for this piece and ensemble in this browser.</p>
+      <div class="table-wrap"><table class="perc-grid" id="percGrid"></table></div>
+      <div class="row" style="margin-top:8px">
+        <button type="button" class="link" id="percAll">Everyone plays everything</button>
+        <button type="button" class="link" id="percSpread">Spread the parts out (one each, round-robin)</button>
+        <button type="button" class="link" id="percNone">Clear all</button>
+      </div>
+      <p class="note" id="percNote"></p>
+    </div>
     <details id="mapBox" style="margin-top:14px">
       <summary style="cursor:pointer;font-weight:600">Page map — fix where parts start</summary>
       <p class="hint" style="margin-top:8px">Each box is a page. Check “start” on the first page of every part; pages after it belong to that part until the next checked page. Colors alternate so you can see where each part begins and ends.</p>
@@ -364,6 +389,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
     <p class="hint" id="reviewHint">The top of the first page of every part that will print, with its copies and students. Anything highlighted needs a look — click a part to jump to it in the list.</p>
     <div class="review-grid" id="review"></div>
     <p class="note" id="reviewSkip"></p>
+    <div id="preflight" class="preflight" hidden></div>
     <div class="stats" id="stats" style="margin-top:14px"></div>
     <div class="row">
       <input type="text" id="outName" style="flex:1;min-width:240px" aria-label="File name">
@@ -730,7 +756,7 @@ function importRoster(text){
     if (!name && !instText) continue;
     if (!name){ skipped.push(`(no name) — ${instText}`); continue; }
     const inst = normInst(instText);
-    if (!inst){ skipped.push(`${name} — instrument "${instText || "blank"}" not recognized`); continue; }
+    if (!inst){ skipped.push(instText ? `${name} — instrument "${instText}" not recognized` : `${name} — no instrument listed`); continue; }
     const m = cell(iChair).match(/\d+/);
     const nm = (iName < 0 && iLast >= 0) ? { first: cell(iFirst), last: cell(iLast) } : splitName(name);
     students.push({ name, first: nm.first, last: nm.last, inst, chair: m ? parseInt(m[0], 10) : null });
@@ -861,11 +887,13 @@ function plan(){
       // e.g. a concert set's "Snare Drum" part, for a band with no marching snares entered
       const perc = groups.Percussion;
       if (st.percAll){ r.list = perc.slice(); r.note = `Every percussionist (no ${SHORT(r.fam)} players entered)`; } else { r.list = [null]; r.note = "1 each — adjust"; }
+      r.percRow = true; applyPerc(r);
       continue;
     }
     if (!p){ r.note = "No players entered"; continue; }
     if (r.fam === "Percussion"){
       if (st.percAll){ r.list = list.slice(); r.note = "Every percussionist" + incl; } else { r.list = [null]; r.note = "1 each — adjust"; }
+      r.percRow = true; applyPerc(r);
       continue;
     }
     const set = numsBy[r.fam];
@@ -908,6 +936,27 @@ function plan(){
     r.names = r.print.filter(Boolean);
   }
   return { rows, missing };
+}
+
+/* ---------------------------------------------------------------- percussion assignments (per piece, per ensemble) */
+// saved.percAssign[piece][ensemble][part label] = [names who play it]; parts not listed = every percussionist
+const pieceKey = () => (($("pieceName") && $("pieceName").value || "").trim().replace(/^Untitled piece$/, "") || state.fileName.replace(/\.pdf$/i, "")).toLowerCase();
+function percMap(create){
+  const pk = pieceKey(), en = saved.current;
+  if (!pk) return null;
+  saved.percAssign = saved.percAssign || {};
+  if (!saved.percAssign[pk]){ if (!create) return null; saved.percAssign[pk] = {}; }
+  if (!saved.percAssign[pk][en]){ if (!create) return null; saved.percAssign[pk][en] = {}; }
+  return saved.percAssign[pk][en];
+}
+function applyPerc(r){
+  const m = percMap(false), key = r.label.toLowerCase();
+  r.percPool = r.list.filter(Boolean);
+  if (!m || !m[key] || !r.list.length || !r.list.some(Boolean)) return;
+  const who = new Set(m[key]);
+  r.list = r.list.filter(n => n && who.has(n));
+  r.note = r.list.length ? `Assigned: ${r.list.length} of the percussion section` : "No percussionist assigned";
+  r.percAssigned = true;
 }
 
 /* ---------------------------------------------------------------- UI: ensemble */
@@ -2211,6 +2260,7 @@ function refresh(){
       <td class="note">${esc(edited ? "Set by hand" : r.note)}${r.guessed ? `<div class="names" style="color:var(--warn)">Name unreadable — guessed from score order. Check page ${r.start}.</div>` : r.inferred ? `<div class="names" style="color:var(--warn)">Part number unreadable — assumed. Check page ${r.start}.</div>` : ""}${r.names.length ? `<div class="names">${r.names.map(esc).join(", ")}</div>` : ""}</td></tr>`;
   }).join("");
   paintPageMap();
+  renderPerc(rows);
   renderReview(rows);
   // stats
   const pr = state.reprintMode ? printRows() : rows;
@@ -2221,13 +2271,110 @@ function refresh(){
     `<div class="stat"><b>${copies}</b><span>part copies</span></div>
      <div class="stat"><b>${pages}</b><span>pages in the PDF</span></div>
      <div class="stat"><b>${Math.ceil(sheets)}</b><span>sheets of paper${S().duplex ? " (double-sided)" : ""}</span></div>`;
-  $("buildBtn").disabled = pages === 0;
+  const warns = state.reprintMode ? [] : preflight(rows);
+  renderPreflight(warns);
+  $("buildBtn").disabled = pages === 0 || (warns.length > 0 && !state.preflightOk);
   updateSummaries({ parts: rows.filter(r => INSTR_IDS.includes(r.fam) && !r.dup).length, flags: rows.filter(r => r.flag || r.guessed || r.inferred).length, copies, sheets: Math.ceil(sheets) });
   updateToPrint();
   const n = $("outName");
   if (n.dataset.auto !== "0") n.value = ((($("pieceName").value || "").trim().replace(/^Untitled piece$/, "")) || state.fileName.replace(/\.pdf$/i, "")) + " - " + saved.current + (state.reprintMode ? " - REPRINT.pdf" : " - PRINT.pdf");
 }
 $("outName").addEventListener("input", e => { e.target.dataset.auto = "0"; });
+
+function percPlayers(rows){
+  // everyone who could get a percussion part: the names on percussion rows before any assignment
+  const out = [];
+  rows.filter(r => r.percRow && !r.dup).forEach(r => (r.percPool || []).forEach(n => { if (!out.includes(n)) out.push(n); }));
+  return out;
+}
+function renderPerc(rows){
+  const parts = rows.filter(r => r.percRow && !r.dup);
+  const ros = roster(), named = ros && ros.names !== false;
+  const players = named ? percPlayers(rows) : [];
+  const box = $("percBox");
+  if (!named || parts.length < 2 || players.length < 1 || state.reprintMode){ box.hidden = true; return; }
+  box.hidden = false;
+  const m = percMap(false) || {};
+  const has = (r, n) => m[r.label.toLowerCase()] ? m[r.label.toLowerCase()].includes(n) : true;
+  $("percGrid").innerHTML = `<thead><tr><th>Student</th>${parts.map(r => `<th title="pp. ${r.start}${r.end > r.start ? "–" + r.end : ""}">${esc(r.label)}</th>`).join("")}<th>Parts</th></tr></thead><tbody>` +
+    players.map(n => {
+      const cnt = parts.filter(r => has(r, n)).length;
+      return `<tr class="${cnt ? "" : "none"}"><td>${esc(n)}</td>${parts.map(r => `<td><input type="checkbox" data-perc-part="${esc(r.label.toLowerCase())}" data-perc-name="${esc(n)}" ${has(r, n) ? "checked" : ""} aria-label="${esc(n)} plays ${esc(r.label)}"></td>`).join("")}<td class="cnt">${cnt}</td></tr>`;
+    }).join("") +
+    `<tr><td class="cnt">Copies</td>${parts.map(r => `<td class="cnt">${players.filter(n => has(r, n)).length}</td>`).join("")}<td></td></tr></tbody>`;
+  const noPart = players.filter(n => !parts.some(r => has(r, n)));
+  const noOne = parts.filter(r => !players.some(n => has(r, n)));
+  $("percNote").innerHTML = [noPart.length ? `<span style="color:var(--warn)">No part yet: ${noPart.map(esc).join(", ")}.</span>` : "",
+                             noOne.length ? `<span style="color:var(--warn)">Nobody on: ${noOne.map(r => esc(r.label)).join(", ")}.</span>` : ""].filter(Boolean).join(" ");
+  state.percGaps = { noPart, noOne: noOne.map(r => r.label) };
+}
+function setPerc(fn){
+  const rows = plan().rows, parts = rows.filter(r => r.percRow && !r.dup), players = percPlayers(rows);
+  const m = percMap(true);
+  parts.forEach((r, j) => { m[r.label.toLowerCase()] = players.filter((n, i) => fn(n, i, r, j, parts.length)); });
+  persist(); refresh();
+}
+$("percGrid").addEventListener("change", e => {
+  const t = e.target; if (!t.dataset.percPart) return;
+  const rows = plan().rows, parts = rows.filter(r => r.percRow && !r.dup), players = percPlayers(rows);
+  const m = percMap(true);
+  // first edit: start from "everyone on every part"
+  parts.forEach(r => { const k = r.label.toLowerCase(); if (!m[k]) m[k] = players.slice(); });
+  const k = t.dataset.percPart, n = t.dataset.percName;
+  m[k] = t.checked ? [...new Set(m[k].concat(n))] : m[k].filter(x => x !== n);
+  persist(); refresh();
+});
+$("percAll").addEventListener("click", () => { const m = percMap(false); if (m){ for (const k of Object.keys(m)) delete m[k]; persist(); } refresh(); });
+$("percNone").addEventListener("click", () => setPerc(() => false));
+$("percSpread").addEventListener("click", () => setPerc((n, i, r, j, np) => i % np === j));
+
+/* ---------------------------------------------------------------- check before printing */
+function preflight(rows){
+  const out = [], ros = roster(), en = saved.current, mute = (saved.preflightMute || {})[en] || {};
+  if (ros){
+    const v = rosterView(ros);
+    // split parts but nobody in that section has a chair
+    const splitFams = [...new Set(rows.filter(r => !r.dup && r.nums && r.nums.length && (r.note || "").includes("÷")).map(r => r.fam))];
+    const noChair = splitFams.filter(f => (v.byInst[f] || []).length > 1 && (v.byInst[f] || []).every(s => s.chair == null));
+    if (noChair.length && !mute.chairs) out.push({ id: "chairs", text: `No chair placements for ${noChair.map(f => SHORT(f)).join(", ")} — 1st/2nd parts are split alphabetically.`,
+      why: "If this ensemble normally has chairs, the chair sheet may have lost its connection. Re-copy the roster from Band Ninja once chairs show again.", mutable: true });
+    // a tie that lands exactly where a part splits
+    for (const f of splitFams){
+      const g = (v.byInst[f] || []).filter(s => s.chair != null), parts = rows.filter(r => !r.dup && r.fam === f && r.nums.length === 1 && r.names.length);
+      for (const r of parts){
+        const last = g.find(s => s.display === r.names[r.names.length - 1]);
+        if (!last) continue;
+        const across = g.filter(s => s.chair === last.chair && !r.names.includes(s.display));
+        const tk = f + ":" + last.chair; if (across.length && out.some(w => w.tk === tk)) continue;
+        if (across.length) out.push({ tk, id: "tie", text: `${r.label}: ${last.display} and ${across.map(s => s.display).join(", ")} are tied at chair ${last.chair} but end up on different parts.`, why: "Decide who takes the higher part, then set their chairs in the roster." });
+      }
+    }
+    const days = ros.imported ? Math.floor((Date.now() - new Date(ros.imported)) / 86400000) : null;
+    if (days !== null && days > 14 && !mute.stale) out.push({ id: "stale", text: `The roster was imported ${days} days ago.`, why: "New students, drops and chair changes since then won't be in this print. Re-copy it from Band Ninja (Replace roster).", mutable: true });
+    if (ros.skipped && ros.skipped.length) out.push({ id: "skipped", text: `Not on any part: ${ros.skipped.join("; ")}.`, why: "These rows in the roster had no recognizable instrument, so they get no music. Fix the instrument in Band Ninja and re-copy the roster." });
+  }
+  const gaps = state.percGaps;
+  if (gaps && !$("percBox").hidden){
+    if (gaps.noPart.length) out.push({ id: "percNo", text: `Percussionists with no part: ${gaps.noPart.join(", ")}.`, why: "Tick at least one part for them in step 3." });
+  }
+  return out;
+}
+function renderPreflight(warns){
+  const box = $("preflight");
+  const sig = JSON.stringify(warns.map(w => w.text));
+  if (sig !== state.preflightSig){ state.preflightSig = sig; state.preflightOk = false; }
+  if (!warns.length){ box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML = `<b class="h">Check before printing</b><ul>${warns.map(w => `<li>${esc(w.text)}<div class="why">${esc(w.why)}${w.mutable ? ` <button type="button" class="link mute" data-mute="${w.id}">Don't warn about this for ${esc(saved.current)}</button>` : ""}</div></li>`).join("")}</ul>
+    <label class="ack"><input type="checkbox" id="preflightAck" ${state.preflightOk ? "checked" : ""}> I've checked these — let me download</label>`;
+}
+$("preflight").addEventListener("change", e => { if (e.target.id === "preflightAck"){ state.preflightOk = e.target.checked; $("buildBtn").disabled = !state.preflightOk; } });
+$("preflight").addEventListener("click", e => {
+  const b = e.target.closest("[data-mute]"); if (!b) return;
+  saved.preflightMute = saved.preflightMute || {};
+  (saved.preflightMute[saved.current] = saved.preflightMute[saved.current] || {})[b.dataset.mute] = true;
+  persist(); refresh();
+});
 
 $("partRows").addEventListener("change", e => {
   const tr = e.target.closest("tr"); if (!tr) return;

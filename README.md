@@ -50,6 +50,25 @@ part's name, instrument and copies stay, and every other part is untouched. A sc
 is cleaned up with your current scan-cleanup settings. If the piece is in your library, click
 **Save to my library** again to keep the new pages.
 
+### Percussion: who plays which part
+
+With a roster loaded, step 3 shows a grid of your percussionists against the piece's percussion parts. Tick
+the parts each student plays — they only get copies of those. Untouched, every percussionist gets every
+part. **Spread the parts out** deals one part to each student round-robin as a starting point. Choices are
+saved per piece and ensemble in this browser, and the grid warns about students with no part.
+
+### Check before printing
+
+Step 4 stops you before downloading when something looks off, and you tick "I've checked these" to go on:
+
+- no chair placements for an instrument whose parts are split (1st/2nd would be alphabetical)
+- two students tied at the chair where a part splits
+- a roster imported more than two weeks ago
+- roster rows with no recognizable instrument (those students get no music)
+- percussionists with no part assigned
+
+The chair and roster-age warnings can be turned off per ensemble (e.g. a 6th grade band with no chairs).
+
 ### Saving pieces
 
 Under **Keep this piece** (step 4):
