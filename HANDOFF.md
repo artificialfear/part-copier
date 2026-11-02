@@ -42,8 +42,20 @@ tested locally, never committed.
   (Sheets metadata call); one hit is picked automatically, several are listed, none → paste-the-link fallback.
 - Needs the Google Drive API enabled in the "Part Copier" Cloud project.
 
+## Google sync + print history (2026-11-02, evening)
+- Scope adds drive.appdata (APPDATA_SCOPE); cfg.appdataOk forces one consent prompt. Sync = one file part-copier-setup.json in
+  appDataFolder holding setupData(true) (same as the setup file, rosters + printLog + mlibId). persist() stamps saved.localAt and
+  calls syncSoon() (3 s debounce) unless syncQuiet. syncNow(): remote newer than saved.syncAt (+1 s for Google's clock) → apply
+  (applySetup, merge semantics: same-named ensembles replaced, nothing deleted); local newer → push; both → syncConflict UI.
+  saved.syncAuto === false = off (default on once Google is connected). Consent flags (consented/driveOk/appdataOk) stay per browser.
+- Print history: saved.printLog [{at, piece, ensemble, copies, pages, reprint, who}], max 300, merged by at|piece|ensemble.
+  Logged after a successful build; shown in step 4 (#logBox).
+- Colleague check: no Music Library sheet → "No spreadsheet…" + paste-the-link box (t_colleague). 59 checks.
+
 ## Open items
-- none
+- Confirm on the school computer: Hub 🖨 button, Find my Music Library, and the new sync prompt (needs the Google Drive API on in
+  the "Part Copier" Cloud project; drive.appdata may need adding to the consent screen's scopes if Google refuses it).
+- Deletions don't sync (an ensemble deleted on one computer stays on others) — by design for now.
 
 ## Decisions
 - concert-copies skill retired (2026-11-01); the web tool is the only path.

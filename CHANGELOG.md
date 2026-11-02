@@ -1,5 +1,13 @@
 # Part Copier changelog
 
+## 2026-11-02 (evening)
+- **Keep in sync through Google** (step 1 → Use this setup on another computer): your ensembles, counts, rosters, print rules
+  and print history follow you to any computer where you sign in. Stored in Part Copier's own private folder in your Google
+  Drive, which can't see your other files. If two computers both changed something, it asks which to keep.
+- **Print history** in step 4: every downloaded print PDF (piece, ensemble, copies, reprints and who they were for), with
+  "printed N times, last …" for the piece you're working on.
+- Google sign-in asks for one more permission the first time (the private sync folder).
+
 ## 2026-11-02
 - Pieces loaded from the Music Library bring their score along (it only prints if you click Print a copy).
 - Score: one-click **Print a copy** on the Score row; the score can also be picked in "Reprint only some parts".
