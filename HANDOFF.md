@@ -31,6 +31,15 @@ tested locally, never committed.
   bnParse finds each Name|Instrument|Chair header and uses the cell above as the title. Setup file carries bn + bnLinks.
 - Mat's Cloud project "Part Copier" (project number 224291250382, owner mathew.t.graham@gmail.com) is set up and connected (2026-11-01). Sheets API enabled. Consent screen stays in Testing; colleagues must be test users.
 
+## Music Library → Drive loader (2026-11-02)
+- Same Google token as the roster (BN_SCOPE now spreadsheets.readonly + drive.readonly; tokens without Drive are dropped,
+  cfg.driveOk forces one consent prompt). saved.mlibId = Music Library sheet; tab "Music Library", columns by header
+  (Title, PDF Folder required; Number, Grade, Composer optional). Folder files: Drive v3 files.list (PDFs, direct children
+  only, so Originals/ is skipped) minus score/conductor/narrator and Mac "._" files → File objects → openFiles().
+- Deep link from the Raven Band Hub library: ?folder=<id>&title=<t>&lib=<sheet id>. Signed in → loads at once; otherwise a
+  "Load the parts" button (Google's popup needs a click). The URL is cleaned with history.replaceState.
+- Needs the Google Drive API enabled in the "Part Copier" Cloud project.
+
 ## Open items
 - none
 

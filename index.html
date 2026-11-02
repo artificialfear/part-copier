@@ -152,6 +152,12 @@ td .link.rep{display:block;padding:2px 0;margin-top:2px;font-size:12.5px}
 .lib-list{list-style:none;margin:6px 0 0;padding:0;max-width:720px}
 .lib-list li{display:flex;align-items:center;gap:10px;padding:8px 10px 8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--field);margin-top:6px}
 .lib-list .ln{flex:1;min-width:0}
+.ml-list{list-style:none;margin:8px 0 0;padding:0;max-width:720px;max-height:340px;overflow:auto}
+.ml-list li{margin-top:4px}
+.ml-list button{width:100%;text-align:left;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:inherit;font:inherit;cursor:pointer}
+.ml-list button:hover{border-color:var(--accent)}
+.ml-list .g{opacity:.7;font-size:13px;margin-left:6px}
+.ml-banner{margin-top:12px;padding:10px 12px;border:1px solid var(--accent);border-radius:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .lib-list .ln b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lib-list .ln span{font-size:12.5px;color:var(--muted)}
 .lib-list button{padding:5px 10px;font-size:13px}
@@ -305,6 +311,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
       <input type="file" id="file" accept="application/pdf,.pdf" multiple hidden>
     </label>
     <div class="status" id="loadStatus"></div>
+    <div id="mlBox"></div>
     <div id="libBox" hidden>
       <div class="rules-group" style="margin-top:14px">Your saved pieces</div>
       <ul class="lib-list" id="libList"></ul>
@@ -1017,6 +1024,7 @@ function renderEnsemble(){
 }
 let rosterOpen = false;
 function renderRoster(){
+  if (typeof mlRender === "function") setTimeout(mlRender);   // the Music Library loader appears once Google sign-in is set up
   const ros = roster(), box = $("rosterBox");
   if (ros){
     const v = rosterView(ros), when = new Date(ros.imported);
@@ -1051,11 +1059,12 @@ function renderRoster(){
 // Reads one tab with the signed-in teacher's own Google access (read-only). Nothing is published or shared;
 // the sheet stays private. Each ensemble is linked to one table on the tab (a "Name | Instrument | Chair" block
 // with a title above it, e.g. "7th Grade (3rd + 4th Block)").
-const BN_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const BN_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly " + DRIVE_SCOPE;   // Drive: load a piece's part PDFs (read-only)
 const bnCfg = () => saved.bn || null;
 const bnLink = () => ((saved.bnLinks || {})[saved.current]) || "";
 let bnToken = null, bnTables = null, bnBusy = false;
-try { const t = JSON.parse(sessionStorage.getItem("partCopier.bnToken") || "null"); if (t && t.exp > Date.now() + 60000) bnToken = t; } catch (e) {}
+try { const t = JSON.parse(sessionStorage.getItem("partCopier.bnToken") || "null"); if (t && t.exp > Date.now() + 60000 && String(t.scope || "").includes(DRIVE_SCOPE)) bnToken = t; } catch (e) {}
 const sheetIdFrom = s => { const m = String(s || "").match(/\/d\/([a-zA-Z0-9_-]{20,})/) || String(s || "").trim().match(/^([a-zA-Z0-9_-]{20,})$/); return m ? m[1] : null; };
 function sheetPanel(){
   const cfg = bnCfg(), link = bnLink(), ros = roster();
@@ -1094,12 +1103,12 @@ async function bnAuth(interactive){
     const client = google.accounts.oauth2.initTokenClient({ client_id: cfg.clientId, scope: BN_SCOPE,
       callback: r => {
         if (r.error){ reject(new Error(r.error_description || r.error)); return; }
-        bnToken = { token: r.access_token, exp: Date.now() + (r.expires_in || 3600) * 1000 };
+        bnToken = { token: r.access_token, exp: Date.now() + (r.expires_in || 3600) * 1000, scope: r.scope || "" };
         try { sessionStorage.setItem("partCopier.bnToken", JSON.stringify(bnToken)); } catch (e) {}
         resolve(bnToken.token);
       },
       error_callback: e => reject(new Error(e && e.type === "popup_closed" ? "the Google sign-in window was closed" : (e && (e.message || e.type)) || "sign-in failed")) });
-    client.requestAccessToken({ prompt: cfg.consented ? "" : "consent" });
+    client.requestAccessToken({ prompt: cfg.consented && cfg.driveOk ? "" : "consent" });
   });
 }
 async function bnFetch(interactive){
@@ -1350,6 +1359,128 @@ $("settingsBox").addEventListener("input", () => {
   st.duplex = $("setDuplex").checked; $("setScoreCopies").disabled = !st.includeScore;
   persist(); refresh();
 });
+
+/* ---------------------------------------------------------------- pieces from Google Drive (Music Library) */
+// A Music Library sheet (Number | Title | … | PDF Folder) lists pieces whose split part PDFs sit in a Drive folder.
+// "Load a piece" reads that folder with the teacher's own read-only access and opens the parts like a multi-file drop.
+// The Raven Band Hub links here with ?folder=<id>&title=<title>&lib=<library sheet id>.
+let mlPieces = null, mlBusy = false, mlOpen = false, mlQuery = "", mlPending = null;
+const folderIdFrom = s => { const m = String(s || "").match(/\/folders\/([a-zA-Z0-9_-]{10,})/) || String(s || "").trim().match(/^([a-zA-Z0-9_-]{10,})$/); return m ? m[1] : null; };
+const ML_SKIP = /\b(score|conductor|narrator|narration|script)\b/i;
+function mlMsg(t, err){ const el = $("mlMsg"); if (el){ el.className = "roster-msg" + (err ? " err" : ""); el.textContent = t; } }
+function mlRender(){
+  const box = $("mlBox"); if (!box) return;
+  const cfg = bnCfg();
+  let h = "";
+  if (mlPending) h += `<div class="ml-banner"><span>Load <b>${esc(mlPending.title || "this piece")}</b> from Google Drive?</span>
+      <button type="button" class="primary" id="mlPendingGo" ${mlBusy ? "disabled" : ""}>Load the parts</button></div>`;
+  if (!cfg){
+    if (mlPending) h += `<p class="hint">First connect your roster Google Sheet in step 1 (that sets up Google sign-in), then come back with the same link.</p>`;
+    box.innerHTML = h; return;
+  }
+  h += `<details class="settings" id="mlDetails" ${mlOpen ? "open" : ""}><summary>📚 Load a piece from your Music Library</summary>`;
+  if (!saved.mlibId){
+    h += `<p class="hint">Paste the link to your Music Library spreadsheet (a tab named “Music Library” with Title and PDF Folder columns).</p>
+      <label class="fld">Music Library link <input type="text" id="mlSheet" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
+      <button type="button" id="mlSave">Save</button>`;
+  } else if (!mlPieces){
+    h += `<p class="hint">Pieces with a PDF Folder link in your Music Library. Scores are left out.</p>
+      <button type="button" id="mlFetch" ${mlBusy ? "disabled" : ""}>${mlBusy ? "Loading…" : "Show my pieces"}</button>
+      <button type="button" class="link" id="mlForget" style="margin-left:10px">Use a different library</button>`;
+  } else {
+    const q = mlQuery.trim().toLowerCase();
+    const list = mlPieces.filter(p => !q || (p.num + " " + p.title + " " + p.composer).toLowerCase().includes(q));
+    h += `<input type="search" id="mlQ" placeholder="Search ${mlPieces.length} pieces…" value="${esc(mlQuery)}" style="width:100%;max-width:720px;margin-top:6px">
+      <ul class="ml-list">${list.slice(0, 80).map(p => `<li><button type="button" data-ml="${esc(p.folderId)}" data-title="${esc(p.title)}">${p.num ? "#" + esc(p.num) + " " : ""}<b>${esc(p.title)}</b>${p.grade ? `<span class="g">Grade ${esc(p.grade)}</span>` : ""}${p.composer ? `<span class="g">${esc(p.composer)}</span>` : ""}</button></li>`).join("") || `<li class="hint">Nothing matches.</li>`}</ul>
+      <button type="button" class="link" id="mlForget" style="margin-top:8px">Use a different library</button>`;
+  }
+  h += `<div class="roster-msg" id="mlMsg"></div></details>`;
+  box.innerHTML = h;
+}
+async function gFetch(url, interactive){
+  const token = await bnAuth(interactive); if (!token) return null;
+  const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+  if (res.status === 401 && interactive){ bnToken = null; try { sessionStorage.removeItem("partCopier.bnToken"); } catch (e) {} return gFetch(url, true); }
+  if (!res.ok){
+    const j = await res.clone().json().catch(() => ({})), msg = (j.error && j.error.message) || res.statusText;
+    if (/has not been used|is disabled|SERVICE_DISABLED/i.test(msg)){
+      const api = /drive/i.test(url) ? "Google Drive API" : "Google Sheets API";
+      throw new Error(`the ${api} isn't turned on in your Google Cloud project yet. Enable it (Google Cloud → APIs & Services → Library → ${api} → Enable), wait a minute, then try again`);
+    }
+    if (res.status === 403 && /insufficient|scope/i.test(msg)){
+      const cfg = bnCfg(); if (cfg){ cfg.driveOk = false; persist(); }
+      bnToken = null; try { sessionStorage.removeItem("partCopier.bnToken"); } catch (e) {}
+      throw new Error("Google didn't give Part Copier permission to read your Drive files. Try again and tick the Google Drive box on the sign-in screen");
+    }
+    throw new Error(res.status === 404 ? "not found (check the link, and that this Google account can open it)" : res.status === 403 ? "this Google account can't open it (" + msg + ")" : msg);
+  }
+  const cfg = bnCfg(); if (cfg && /googleapis\.com\/drive/.test(url) && !cfg.driveOk){ cfg.driveOk = true; persist(); }
+  return res;
+}
+async function mlFetchPieces(){
+  const range = encodeURIComponent("'Music Library'!A1:Z2000");
+  const res = await gFetch(`https://sheets.googleapis.com/v4/spreadsheets/${saved.mlibId}/values/${range}?valueRenderOption=FORMATTED_VALUE`, true);
+  const values = (await res.json()).values || [];
+  const head = (values[0] || []).map(h => String(h).trim().toLowerCase());
+  const col = n => head.indexOf(n);
+  const ti = col("title"), fi = col("pdf folder");
+  if (ti < 0 || fi < 0) throw new Error("the Music Library tab needs Title and PDF Folder columns");
+  const ni = col("number"), gi = col("grade"), ci = col("composer");
+  mlPieces = values.slice(1).map(r => ({ title: String(r[ti] || "").trim(), folderId: folderIdFrom(r[fi]), num: ni < 0 ? "" : String(r[ni] || "").trim(),
+      grade: gi < 0 ? "" : String(r[gi] || "").trim(), composer: ci < 0 ? "" : String(r[ci] || "").trim() }))
+    .filter(p => p.title && p.folderId).sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+}
+async function mlLoad(folderId, title){
+  if (mlBusy) return;
+  mlBusy = true; mlRender();
+  const st = $("loadStatus");
+  try {
+    st.textContent = `Looking in Google Drive for ${title || "the piece"}…`;
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false and mimeType='application/pdf'`);
+    const res = await gFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,size)&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`, true);
+    if (!res) return;
+    const all = (await res.json()).files || [];
+    const parts = all.filter(f => !/^\._/.test(f.name) && !ML_SKIP.test(f.name)).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    if (!parts.length){ st.textContent = all.length ? "That folder only has a score — no part PDFs to load." : "There are no PDFs in that folder yet."; return; }
+    const files = [];
+    for (let i = 0; i < parts.length; i++){
+      st.textContent = `Downloading ${i + 1} of ${parts.length} from Google Drive…`;
+      const r = await gFetch(`https://www.googleapis.com/drive/v3/files/${parts[i].id}?alt=media&supportsAllDrives=true`, true);
+      files.push(new File([await r.arrayBuffer()], parts[i].name, { type: "application/pdf" }));
+    }
+    mlPending = null; mlOpen = false;
+    await openFiles(files);
+  } catch (err) {
+    st.textContent = "Couldn't load it from Google Drive: " + (err && err.message || err) + ".";
+  } finally { mlBusy = false; mlRender(); }
+}
+$("mlBox").addEventListener("click", async e => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.id === "mlPendingGo") return mlLoad(mlPending.folderId, mlPending.title);
+  if (t.dataset.ml) return mlLoad(t.dataset.ml, t.dataset.title);
+  if (t.id === "mlSave"){
+    const id = sheetIdFrom($("mlSheet").value); if (!id) return mlMsg("That doesn't look like a Google Sheets link.", true);
+    saved.mlibId = id; persist(); mlPieces = null; mlOpen = true; mlRender(); return;
+  }
+  if (t.id === "mlForget"){ saved.mlibId = null; mlPieces = null; persist(); mlOpen = true; mlRender(); return; }
+  if (t.id === "mlFetch"){
+    mlBusy = true; mlOpen = true; mlRender();
+    try { await mlFetchPieces(); } catch (err) { mlBusy = false; mlRender(); return mlMsg("Couldn't read the Music Library: " + (err && err.message || err) + ".", true); }
+    mlBusy = false; mlRender(); return;
+  }
+});
+$("mlBox").addEventListener("input", e => { if (e.target.id === "mlQ"){ mlQuery = e.target.value; const pos = e.target.selectionStart; mlRender(); const q = $("mlQ"); q.focus(); q.setSelectionRange(pos, pos); } });
+$("mlBox").addEventListener("toggle", e => { if (e.target.id === "mlDetails") mlOpen = e.target.open; }, true);
+function mlFromLink(){
+  const p = new URLSearchParams(location.search), folderId = folderIdFrom(p.get("folder"));
+  const lib = sheetIdFrom(p.get("lib") || "");
+  if (lib && lib !== saved.mlibId){ saved.mlibId = lib; persist(); }
+  if (!folderId) return;
+  mlPending = { folderId, title: (p.get("title") || "").slice(0, 120) };
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+  openStep("s2");
+  if (bnCfg() && bnToken && bnToken.exp > Date.now() + 60000) mlLoad(mlPending.folderId, mlPending.title);   // already signed in: no click needed
+}
 
 /* ---------------------------------------------------------------- UI: loading a PDF */
 const drop = $("drop");
@@ -2895,7 +3026,7 @@ $("themeToggle").addEventListener("click", () => {
 paintThemeToggle();
 
 /* ---------------------------------------------------------------- start */
-renderEnsemble(); renderSettings(); renderCleanSettings(); renderLibrary();
+renderEnsemble(); renderSettings(); renderCleanSettings(); renderLibrary(); mlRender(); mlFromLink();
 (() => { let first = true; try { first = !localStorage.getItem(STORE); } catch (e) {} if (first) $("settingsBox").open = true; })();
 </script>
 </body>

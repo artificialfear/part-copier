@@ -130,12 +130,55 @@ def t_sheet(pg):
     check("sheet: picking a table pulls the roster", pg.evaluate("counts().Trumpet") == 2 and pg.evaluate("roster().source") == "sheet")
     pg.unroute("https://accounts.google.com/gsi/client"); pg.unroute("https://sheets.googleapis.com/**")
 
+def t_drive(pg):
+    import json, io
+    from reportlab.pdfgen import canvas
+    def mk(label):
+        b = io.BytesIO(); c = canvas.Canvas(b, pagesize=(612, 792)); c.setFont("Helvetica-Bold", 22); c.drawString(60, 740, label)
+        c.setFont("Helvetica", 12); c.drawString(60, 700, "Frost March - test part"); c.showPage(); c.save(); return b.getvalue()
+    files = {"f1": "Frost March - Score.pdf", "f2": "Frost March - Flute.pdf", "f3": "Frost March - Trumpet 1.pdf", "f4": "Frost March - Trumpet 2.pdf", "f5": "._Frost March - Flute.pdf"}
+    blobs = {k: mk(v.split(" - ")[1][:-4]) for k, v in files.items()}
+    lib = {"values": [["Number", "Title", "Composer", "Grade", "PDF Folder"], ["325", "Frost March", "R. Writer", "1.5", "https://drive.google.com/drive/folders/FOLDERFROST123"],
+                      ["12", "Paper Only Piece", "", "2", ""]]}
+    seen = []
+    def drive(r):
+        u = r.request.url; seen.append(u)
+        if "alt=media" in u:
+            fid = u.split("/files/")[1].split("?")[0]; return r.fulfill(status=200, content_type="application/pdf", body=blobs[fid])
+        return r.fulfill(status=200, content_type="application/json", body=json.dumps({"files": [{"id": k, "name": v, "size": "1"} for k, v in files.items()]}))
+    gis = "window.google={accounts:{oauth2:{initTokenClient:o=>({requestAccessToken:()=>setTimeout(()=>o.callback({access_token:'t',expires_in:3600,scope:o.scope}),5)}),revoke:(t,c)=>c&&c()}}};"
+    pg.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(status=200, content_type="text/javascript", body=gis))
+    pg.route("https://sheets.googleapis.com/**", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(lib)))
+    pg.route("https://www.googleapis.com/drive/**", drive)
+    fresh(pg); pg.evaluate("sessionStorage.clear()")
+    check("drive: no library loader before Google sign-in is set up", not pg.is_visible("#mlDetails"))
+    pg.evaluate("saved.bn={clientId:'1-x.apps.googleusercontent.com',sheetId:'AAAAAAAAAAAAAAAAAAAAAAAAAAAA',tab:'Part Copier Roster',consented:true}; persist(); renderRoster()"); pg.wait_for_timeout(100)
+    pg.evaluate("openStep('s2')"); pg.click("#mlDetails summary")
+    pg.fill("#mlSheet", "https://docs.google.com/spreadsheets/d/LIBLIBLIBLIBLIBLIBLIBLIBLIB/edit"); pg.click("#mlSave"); pg.click("#mlFetch"); pg.wait_for_timeout(400)
+    names = pg.eval_on_selector_all(".ml-list button", "l=>l.map(b=>b.innerText)")
+    check("drive: library lists only pieces with a PDF folder", len(names) == 1 and "Frost March" in names[0], names)
+    pg.click(".ml-list button"); pg.wait_for_selector("#s3:not([hidden])", timeout=60000); pg.wait_for_timeout(400)
+    L = [r["label"] for r in rows(pg)]
+    check("drive: picking a piece loads its parts (score and Mac junk left out)", L == ["Flute", "Trumpet 1", "Trumpet 2"], L)
+    check("drive: the token asked for read-only Drive access", "drive.readonly" in pg.evaluate("bnToken.scope"))
+    # link from the Raven Band Hub, already signed in: loads by itself
+    seen.clear()
+    pg.goto(URL + "?folder=FOLDERFROST123&title=Frost%20March&lib=LIBLIBLIBLIBLIBLIBLIBLIBLIB"); pg.wait_for_selector("#s3:not([hidden])", timeout=60000); pg.wait_for_timeout(400)
+    check("drive: a Hub link loads the piece straight away when signed in", [r["label"] for r in rows(pg)] == ["Flute", "Trumpet 1", "Trumpet 2"] and any("FOLDERFROST123" in u for u in seen))
+    check("drive: the link is cleaned out of the address bar", "folder=" not in pg.url)
+    # not signed in: a button to click (Google's sign-in needs a click)
+    pg.evaluate("sessionStorage.clear()"); pg.goto(URL + "?folder=FOLDERFROST123&title=Frost%20March"); pg.wait_for_timeout(300)
+    check("drive: not signed in, the Hub link shows a Load button", pg.is_visible("#mlPendingGo") and "Frost March" in pg.inner_text("#mlBox"))
+    pg.click("#mlPendingGo"); pg.wait_for_selector("#s3:not([hidden])", timeout=60000); pg.wait_for_timeout(400)
+    check("drive: …which signs in and loads the parts", [r["label"] for r in rows(pg)] == ["Flute", "Trumpet 1", "Trumpet 2"])
+    for u in ["https://accounts.google.com/gsi/client", "https://sheets.googleapis.com/**", "https://www.googleapis.com/drive/**"]: pg.unroute(u)
+
 with sync_playwright() as p:
     b = p.chromium.launch(channel="chromium")
     ctx = b.new_context(accept_downloads=True, viewport={"width": 1100, "height": 900}); pg = ctx.new_page()
     pg.on("pageerror", lambda e: page_errors.append(str(e)))
     only = sys.argv[1:]
-    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_scan]:
+    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_scan]:
         if only and t.__name__[2:] not in only: continue
         try: t(pg)
         except Exception as e: check(t.__name__ + " ran", False, traceback.format_exc(limit=2))

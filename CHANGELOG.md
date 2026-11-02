@@ -1,5 +1,10 @@
 # Part Copier changelog
 
+## 2026-11-02
+- Load a piece straight from Google Drive: step 2 → "Load a piece from your Music Library" lists every piece with a
+  PDF Folder link; pick one and its part PDFs load (scores left out). The Raven Band Hub's library links here too.
+- Google sign-in now also asks for read-only Drive access (one extra consent the first time).
+
 ## 2026-11-01 (evening)
 - Pull the roster straight from a Google Sheet (read-only Google sign-in); auto-refresh on open while signed in;
   step 4 offers a pull when the roster is over 12 hours old.
