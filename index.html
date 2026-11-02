@@ -1364,7 +1364,7 @@ $("settingsBox").addEventListener("input", () => {
 // A Music Library sheet (Number | Title | … | PDF Folder) lists pieces whose split part PDFs sit in a Drive folder.
 // "Load a piece" reads that folder with the teacher's own read-only access and opens the parts like a multi-file drop.
 // The Raven Band Hub links here with ?folder=<id>&title=<title>&lib=<library sheet id>.
-let mlPieces = null, mlBusy = false, mlOpen = false, mlQuery = "", mlPending = null;
+let mlPieces = null, mlBusy = false, mlOpen = false, mlQuery = "", mlPending = null, mlFound = null;
 const folderIdFrom = s => { const m = String(s || "").match(/\/folders\/([a-zA-Z0-9_-]{10,})/) || String(s || "").trim().match(/^([a-zA-Z0-9_-]{10,})$/); return m ? m[1] : null; };
 const ML_SKIP = /\b(score|conductor|narrator|narration|script)\b/i;
 function mlMsg(t, err){ const el = $("mlMsg"); if (el){ el.className = "roster-msg" + (err ? " err" : ""); el.textContent = t; } }
@@ -1374,15 +1374,18 @@ function mlRender(){
   let h = "";
   if (mlPending) h += `<div class="ml-banner"><span>Load <b>${esc(mlPending.title || "this piece")}</b> from Google Drive?</span>
       <button type="button" class="primary" id="mlPendingGo" ${mlBusy ? "disabled" : ""}>Load the parts</button></div>`;
-  if (!cfg){
-    if (mlPending) h += `<p class="hint">First connect your roster Google Sheet in step 1 (that sets up Google sign-in), then come back with the same link.</p>`;
-    box.innerHTML = h; return;
-  }
   h += `<details class="settings" id="mlDetails" ${mlOpen ? "open" : ""}><summary>📚 Load a piece from your Music Library</summary>`;
-  if (!saved.mlibId){
-    h += `<p class="hint">Paste the link to your Music Library spreadsheet (a tab named “Music Library” with Title and PDF Folder columns).</p>
-      <label class="fld">Music Library link <input type="text" id="mlSheet" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
-      <button type="button" id="mlSave">Save</button>`;
+  if (!cfg){
+    h += `<p class="hint">This loads a piece's part PDFs straight from your Google Drive. First connect Google in step 1 (“Pull the roster from a Google Sheet”), then come back here.</p>
+      ${mlPending ? `<p class="hint">Then use the same link from the Hub again.</p>` : ""}`;
+  } else if (!saved.mlibId){
+    h += `<p class="hint">Part Copier looks in your Google Drive for your Music Library spreadsheet (a tab named “Music Library” with Title and PDF Folder columns).</p>
+      <button type="button" id="mlFind" ${mlBusy ? "disabled" : ""}>${mlBusy ? "Looking…" : "Find my Music Library"}</button>
+      ${mlFound ? (mlFound.length ? `<ul class="ml-list">${mlFound.map(f => `<li><button type="button" data-lib="${esc(f.id)}"><b>${esc(f.name)}</b><span class="g">edited ${esc(String(f.modifiedTime || "").slice(0, 10))}</span></button></li>`).join("")}</ul>`
+          : `<p class="hint">No spreadsheet with a “Music Library” tab turned up. Paste its link instead:</p>`) : ""}
+      <details style="margin-top:8px" ${mlFound && !mlFound.length ? "open" : ""}><summary class="hint">Or paste the link</summary>
+        <label class="fld">Music Library link <input type="text" id="mlSheet" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
+        <button type="button" id="mlSave">Save</button></details>`;
   } else if (!mlPieces){
     h += `<p class="hint">Pieces with a PDF Folder link in your Music Library. Scores are left out.</p>
       <button type="button" id="mlFetch" ${mlBusy ? "disabled" : ""}>${mlBusy ? "Loading…" : "Show my pieces"}</button>
@@ -1416,6 +1419,19 @@ async function gFetch(url, interactive){
   }
   const cfg = bnCfg(); if (cfg && /googleapis\.com\/drive/.test(url) && !cfg.driveOk){ cfg.driveOk = true; persist(); }
   return res;
+}
+// spreadsheets in the teacher's Drive whose name mentions "library" and that have a "Music Library" tab
+async function mlFind(){
+  const q = encodeURIComponent("mimeType='application/vnd.google-apps.spreadsheet' and trashed=false and name contains 'Library'");
+  const res = await gFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&pageSize=25&supportsAllDrives=true&includeItemsFromAllDrives=true`, true);
+  const files = (await res.json()).files || [], ok = [];
+  for (const f of files.slice(0, 12)){
+    const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${f.id}?fields=sheets.properties.title`, { headers: { Authorization: "Bearer " + bnToken.token } });
+    if (!r.ok) continue;
+    const tabs = ((await r.json()).sheets || []).map(x => x.properties.title);
+    if (tabs.some(t => /^music library$/i.test(String(t).trim()))) ok.push(f);
+  }
+  return ok;
 }
 async function mlFetchPieces(){
   const range = encodeURIComponent("'Music Library'!A1:Z2000");
@@ -1462,7 +1478,15 @@ $("mlBox").addEventListener("click", async e => {
     const id = sheetIdFrom($("mlSheet").value); if (!id) return mlMsg("That doesn't look like a Google Sheets link.", true);
     saved.mlibId = id; persist(); mlPieces = null; mlOpen = true; mlRender(); return;
   }
-  if (t.id === "mlForget"){ saved.mlibId = null; mlPieces = null; persist(); mlOpen = true; mlRender(); return; }
+  if (t.id === "mlFind"){
+    mlBusy = true; mlOpen = true; mlRender();
+    try { mlFound = await mlFind(); } catch (err) { mlBusy = false; mlRender(); return mlMsg("Couldn't search your Drive: " + (err && err.message || err) + ".", true); }
+    mlBusy = false;
+    if (mlFound.length === 1){ saved.mlibId = mlFound[0].id; persist(); mlFound = null; mlRender(); $("mlFetch").click(); return; }
+    mlRender(); return;
+  }
+  if (t.dataset.lib){ saved.mlibId = t.dataset.lib; persist(); mlFound = null; mlRender(); $("mlFetch").click(); return; }
+  if (t.id === "mlForget"){ mlFound = null; saved.mlibId = null; mlPieces = null; persist(); mlOpen = true; mlRender(); return; }
   if (t.id === "mlFetch"){
     mlBusy = true; mlOpen = true; mlRender();
     try { await mlFetchPieces(); } catch (err) { mlBusy = false; mlRender(); return mlMsg("Couldn't read the Music Library: " + (err && err.message || err) + ".", true); }

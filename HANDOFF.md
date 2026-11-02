@@ -38,6 +38,8 @@ tested locally, never committed.
   only, so Originals/ is skipped) minus score/conductor/narrator and Mac "._" files → File objects → openFiles().
 - Deep link from the Raven Band Hub library: ?folder=<id>&title=<t>&lib=<sheet id>. Signed in → loads at once; otherwise a
   "Load the parts" button (Google's popup needs a click). The URL is cleaned with history.replaceState.
+- "Find my Music Library" (mlFind): Drive search for spreadsheets named *Library*, keeps those with a "Music Library" tab
+  (Sheets metadata call); one hit is picked automatically, several are listed, none → paste-the-link fallback.
 - Needs the Google Drive API enabled in the "Part Copier" Cloud project.
 
 ## Open items

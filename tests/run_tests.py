@@ -145,16 +145,26 @@ def t_drive(pg):
         u = r.request.url; seen.append(u)
         if "alt=media" in u:
             fid = u.split("/files/")[1].split("?")[0]; return r.fulfill(status=200, content_type="application/pdf", body=blobs[fid])
+        if "spreadsheet" in u:
+            return r.fulfill(status=200, content_type="application/json", body=json.dumps({"files": [{"id": "LIBLIBLIBLIBLIBLIBLIBLIBLIB", "name": "Music Library 2.0", "modifiedTime": "2026-11-02T10:00:00Z"},
+                                                                                                     {"id": "OTHEROTHEROTHEROTHEROTHER", "name": "Library Books", "modifiedTime": "2026-10-01T10:00:00Z"}]}))
         return r.fulfill(status=200, content_type="application/json", body=json.dumps({"files": [{"id": k, "name": v, "size": "1"} for k, v in files.items()]}))
     gis = "window.google={accounts:{oauth2:{initTokenClient:o=>({requestAccessToken:()=>setTimeout(()=>o.callback({access_token:'t',expires_in:3600,scope:o.scope}),5)}),revoke:(t,c)=>c&&c()}}};"
     pg.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(status=200, content_type="text/javascript", body=gis))
-    pg.route("https://sheets.googleapis.com/**", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(lib)))
+    def sheets(r):
+        u = r.request.url
+        if "fields=sheets" in u:
+            tabs = ["Music Library", "Checkout Log"] if "LIBLIB" in u else ["Books"]
+            return r.fulfill(status=200, content_type="application/json", body=json.dumps({"sheets": [{"properties": {"title": t}} for t in tabs]}))
+        return r.fulfill(status=200, content_type="application/json", body=json.dumps(lib))
+    pg.route("https://sheets.googleapis.com/**", sheets)
     pg.route("https://www.googleapis.com/drive/**", drive)
     fresh(pg); pg.evaluate("sessionStorage.clear()")
-    check("drive: no library loader before Google sign-in is set up", not pg.is_visible("#mlDetails"))
-    pg.evaluate("saved.bn={clientId:'1-x.apps.googleusercontent.com',sheetId:'AAAAAAAAAAAAAAAAAAAAAAAAAAAA',tab:'Part Copier Roster',consented:true}; persist(); renderRoster()"); pg.wait_for_timeout(100)
     pg.evaluate("openStep('s2')"); pg.click("#mlDetails summary")
-    pg.fill("#mlSheet", "https://docs.google.com/spreadsheets/d/LIBLIBLIBLIBLIBLIBLIBLIBLIB/edit"); pg.click("#mlSave"); pg.click("#mlFetch"); pg.wait_for_timeout(400)
+    check("drive: before Google sign-in is set up, the loader says to connect in step 1", "connect Google in step 1" in pg.inner_text("#mlBox") and not pg.is_visible("#mlFind"))
+    pg.evaluate("saved.bn={clientId:'1-x.apps.googleusercontent.com',sheetId:'AAAAAAAAAAAAAAAAAAAAAAAAAAAA',tab:'Part Copier Roster',consented:true}; persist(); renderRoster()"); pg.wait_for_timeout(100)
+    pg.wait_for_timeout(100); pg.click("#mlFind"); pg.wait_for_timeout(600)
+    check("drive: Find my Music Library picks the one sheet with a Music Library tab", pg.evaluate("saved.mlibId") == "LIBLIBLIBLIBLIBLIBLIBLIBLIB", pg.evaluate("saved.mlibId"))
     names = pg.eval_on_selector_all(".ml-list button", "l=>l.map(b=>b.innerText)")
     check("drive: library lists only pieces with a PDF folder", len(names) == 1 and "Frost March" in names[0], names)
     pg.click(".ml-list button"); pg.wait_for_selector("#s3:not([hidden])", timeout=60000); pg.wait_for_timeout(400)
