@@ -1,6 +1,9 @@
 # Part Copier changelog
 
 ## 2026-11-02
+- Score: one-click **Print a copy** on the Score row; the score can also be picked in "Reprint only some parts".
+
+## 2026-11-02
 - Load a piece straight from Google Drive: step 2 → "Load a piece from your Music Library" lists every piece with a
   PDF Folder link; pick one and its part PDFs load (scores left out). The Raven Band Hub's library links here too.
 - Google sign-in now also asks for read-only Drive access (one extra consent the first time).

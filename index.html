@@ -2329,7 +2329,7 @@ function renderReview(rows){
     if (!en.isIntersecting) return; reviewObs.unobserve(en.target);
     topShot(+en.target.dataset.page).then(src => { const img = en.target.querySelector("img"); if (img) img.src = src; }).catch(() => {});
   }), { rootMargin: "400px" });
-  const printing = state.reprintMode ? rows.filter(r => INSTR_IDS.includes(r.fam) && !r.dup) : rows.filter(r => r.copies > 0);
+  const printing = state.reprintMode ? rows.filter(r => (INSTR_IDS.includes(r.fam) || (r.fam === "Score" && !r.front)) && !r.dup) : rows.filter(r => r.copies > 0);
   const real = rows.filter(r => INSTR_IDS.includes(r.fam) && !r.dup), med = real.length ? real.map(r => r.pages).sort((a, b) => a - b)[Math.floor(real.length / 2)] : 0;
   box.innerHTML = printing.map(r => {
     const flag = r.guessed ? "Name guessed — check it" : r.inferred ? "Part number assumed — check it" : r.flag ? "Not matched to an instrument" :
@@ -2623,7 +2623,7 @@ function refresh(){
       <td><select data-field="fam">${famOptions(r.fam)}</select></td>
       <td><div class="copies"><input type="number" min="0" max="500" data-field="copies" value="${r.copies}" class="${edited ? "edited" : ""}">
         ${edited ? `<button class="link" data-reset="${r.start}" title="Back to automatic">auto (${r.auto})</button>` : ""}</div></td>
-      <td class="note">${esc(edited ? "Set by hand" : r.note)}${r.guessed ? `<div class="names" style="color:var(--warn)">Name unreadable — guessed from score order. Check page ${r.start}.</div>` : r.inferred ? `<div class="names" style="color:var(--warn)">Part number unreadable — assumed. Check page ${r.start}.</div>` : ""}${r.names.length ? `<div class="names">${r.names.map(esc).join(", ")}</div>` : ""}</td></tr>`;
+      <td class="note">${esc(edited ? "Set by hand" : r.note)}${r.fam === "Score" && !r.front && !r.dup && !r.copies ? ` <button type="button" class="link" data-score="${r.start}">Print a copy</button>` : ""}${r.guessed ? `<div class="names" style="color:var(--warn)">Name unreadable — guessed from score order. Check page ${r.start}.</div>` : r.inferred ? `<div class="names" style="color:var(--warn)">Part number unreadable — assumed. Check page ${r.start}.</div>` : ""}${r.names.length ? `<div class="names">${r.names.map(esc).join(", ")}</div>` : ""}</td></tr>`;
   }).join("");
   paintPageMap();
   renderPerc(rows);
@@ -2789,6 +2789,11 @@ $("preflight").addEventListener("click", e => {
   persist(); refresh();
 });
 
+$("partRows").addEventListener("click", e => {
+  const b = e.target.closest("[data-score]"); if (!b) return;
+  const st = state.starts.get(+b.dataset.score); if (!st) return;
+  st.override = 1; state.userTouched = true; refresh();
+});
 $("partRows").addEventListener("change", e => {
   const tr = e.target.closest("tr"); if (!tr) return;
   const st = state.starts.get(+tr.dataset.start); if (!st) return;

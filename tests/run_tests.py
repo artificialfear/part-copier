@@ -69,11 +69,19 @@ def t_concert(pg):
     pg.check("#preflightAck"); check("preflight: tick unlocks download", not pg.is_disabled("#buildBtn"))
     pg.evaluate("openStep('s3')"); pg.click("#percAll"); pg.wait_for_timeout(200)
     check("percussion: everyone plays everything restores", row(pg, "Timpani")["copies"] == 4)
+    # the score: one click prints a copy
+    pg.evaluate("openStep('s3')"); pg.click('#partRows [data-score]'); pg.wait_for_timeout(200)
+    check("score: 'Print a copy' adds one score copy", row(pg, "Score")["copies"] == 1)
+    sc = download(pg, "#buildBtn", "with_score.pdf")
+    check("score: score pages included in the print file", len(PdfReader(sc).pages) == exp + 2, (len(PdfReader(sc).pages), exp))
     # reprint one student
     pg.evaluate("openStep('s4')"); pg.check('#printMode input[value="some"]'); pg.wait_for_timeout(200)
     pg.check('#review [data-rp-name][value="Gus"]'); pg.wait_for_timeout(200)
     rp = download(pg, "#buildBtn", "reprint.pdf")
     check("reprint: only the chosen student's part", len(PdfReader(rp).pages) == 2, len(PdfReader(rp).pages))
+    pg.check('#review [data-rp-on="1"]'); pg.wait_for_timeout(200)
+    rp2 = download(pg, "#buildBtn", "reprint_score.pdf")
+    check("reprint: the score can be reprinted too", len(PdfReader(rp2).pages) == 4, len(PdfReader(rp2).pages))
 
 def t_nochairs(pg):
     fresh(pg); roster(pg, "roster_nochairs.tsv"); load(pg, "concert.pdf"); pg.evaluate("openStep('s4')")

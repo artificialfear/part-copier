@@ -174,7 +174,8 @@ rosters contains student names — keep it in your school account.
 - Split parts (1st/2nd/3rd): players divided evenly; an odd player goes to the 1st part.
 - Combined parts ("1 & 2") and unnumbered parts: one copy per player.
 - Every percussionist gets every percussion part.
-- No spare copies, no score, single-sided.
+- No spare copies, no score, single-sided. To print the score for one piece, click **Print a copy** on the Score row
+  in step 3 (or type a copy count); to always print it, tick **Include the full score** in Print rules.
 - Bassoon with no bassoon part: gets the lowest trombone part.
 - Trumpets with only cornet parts (or cornets with only trumpet parts) split across those parts.
 - Mellophones with only horn parts (or horns with only mellophone parts) split across those parts;
