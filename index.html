@@ -1366,7 +1366,9 @@ $("settingsBox").addEventListener("input", () => {
 // The Raven Band Hub links here with ?folder=<id>&title=<title>&lib=<library sheet id>.
 let mlPieces = null, mlBusy = false, mlOpen = false, mlQuery = "", mlPending = null, mlFound = null;
 const folderIdFrom = s => { const m = String(s || "").match(/\/folders\/([a-zA-Z0-9_-]{10,})/) || String(s || "").trim().match(/^([a-zA-Z0-9_-]{10,})$/); return m ? m[1] : null; };
-const ML_SKIP = /\b(score|conductor|narrator|narration|script)\b/i;
+// narration and scripts aren't music to copy; the score is loaded (it only prints if you ask for it)
+const ML_SKIP = /\b(narrator|narration|script)\b/i;
+const ML_SCORE = /\b(score|conductor)\b/i;
 function mlMsg(t, err){ const el = $("mlMsg"); if (el){ el.className = "roster-msg" + (err ? " err" : ""); el.textContent = t; } }
 function mlRender(){
   const box = $("mlBox"); if (!box) return;
@@ -1387,7 +1389,7 @@ function mlRender(){
         <label class="fld">Music Library link <input type="text" id="mlSheet" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
         <button type="button" id="mlSave">Save</button></details>`;
   } else if (!mlPieces){
-    h += `<p class="hint">Pieces with a PDF Folder link in your Music Library. Scores are left out.</p>
+    h += `<p class="hint">Pieces with a PDF Folder link in your Music Library. The score comes along but only prints if you ask for it.</p>
       <button type="button" id="mlFetch" ${mlBusy ? "disabled" : ""}>${mlBusy ? "Loading…" : "Show my pieces"}</button>
       <button type="button" class="link" id="mlForget" style="margin-left:10px">Use a different library</button>`;
   } else {
@@ -1457,7 +1459,7 @@ async function mlLoad(folderId, title){
     if (!res) return;
     const all = (await res.json()).files || [];
     const parts = all.filter(f => !/^\._/.test(f.name) && !ML_SKIP.test(f.name)).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    if (!parts.length){ st.textContent = all.length ? "That folder only has a score — no part PDFs to load." : "There are no PDFs in that folder yet."; return; }
+    if (!parts.some(f => !ML_SCORE.test(f.name))){ st.textContent = parts.length ? "That folder only has a score — no part PDFs to load." : "There are no PDFs in that folder yet."; return; }
     const files = [];
     for (let i = 0; i < parts.length; i++){
       st.textContent = `Downloading ${i + 1} of ${parts.length} from Google Drive…`;

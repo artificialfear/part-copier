@@ -177,18 +177,19 @@ def t_drive(pg):
     check("drive: library lists only pieces with a PDF folder", len(names) == 1 and "Frost March" in names[0], names)
     pg.click(".ml-list button"); pg.wait_for_selector("#s3:not([hidden])", timeout=60000); pg.wait_for_timeout(400)
     L = [r["label"] for r in rows(pg)]
-    check("drive: picking a piece loads its parts (score and Mac junk left out)", L == ["Flute", "Trumpet 1", "Trumpet 2"], L)
+    check("drive: picking a piece loads its parts and the score (Mac junk left out)", L == ["Score", "Flute", "Trumpet 1", "Trumpet 2"], L)
+    check("drive: the score is loaded but not printed by default", row(pg, "Score")["copies"] == 0 and pg.is_visible('#partRows [data-score]'))
     check("drive: the token asked for read-only Drive access", "drive.readonly" in pg.evaluate("bnToken.scope"))
     # link from the Raven Band Hub, already signed in: loads by itself
     seen.clear()
     pg.goto(URL + "?folder=FOLDERFROST123&title=Frost%20March&lib=LIBLIBLIBLIBLIBLIBLIBLIBLIB"); pg.wait_for_selector("#s3:not([hidden])", timeout=60000); pg.wait_for_timeout(400)
-    check("drive: a Hub link loads the piece straight away when signed in", [r["label"] for r in rows(pg)] == ["Flute", "Trumpet 1", "Trumpet 2"] and any("FOLDERFROST123" in u for u in seen))
+    check("drive: a Hub link loads the piece straight away when signed in", [r["label"] for r in rows(pg)] == ["Score", "Flute", "Trumpet 1", "Trumpet 2"] and any("FOLDERFROST123" in u for u in seen))
     check("drive: the link is cleaned out of the address bar", "folder=" not in pg.url)
     # not signed in: a button to click (Google's sign-in needs a click)
     pg.evaluate("sessionStorage.clear()"); pg.goto(URL + "?folder=FOLDERFROST123&title=Frost%20March"); pg.wait_for_timeout(300)
     check("drive: not signed in, the Hub link shows a Load button", pg.is_visible("#mlPendingGo") and "Frost March" in pg.inner_text("#mlBox"))
     pg.click("#mlPendingGo"); pg.wait_for_selector("#s3:not([hidden])", timeout=60000); pg.wait_for_timeout(400)
-    check("drive: …which signs in and loads the parts", [r["label"] for r in rows(pg)] == ["Flute", "Trumpet 1", "Trumpet 2"])
+    check("drive: …which signs in and loads the parts", [r["label"] for r in rows(pg)] == ["Score", "Flute", "Trumpet 1", "Trumpet 2"])
     for u in ["https://accounts.google.com/gsi/client", "https://sheets.googleapis.com/**", "https://www.googleapis.com/drive/**"]: pg.unroute(u)
 
 with sync_playwright() as p:
