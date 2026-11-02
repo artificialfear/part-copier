@@ -192,12 +192,94 @@ def t_drive(pg):
     check("drive: …which signs in and loads the parts", [r["label"] for r in rows(pg)] == ["Score", "Flute", "Trumpet 1", "Trumpet 2"])
     for u in ["https://accounts.google.com/gsi/client", "https://sheets.googleapis.com/**", "https://www.googleapis.com/drive/**"]: pg.unroute(u)
 
+def t_log(pg):
+    fresh(pg); roster(pg, "roster_chairs.tsv"); load(pg, "concert.pdf")
+    pg.fill("#pieceName", "Concert Test")
+    download(pg, "#buildBtn", "log1.pdf"); pg.wait_for_timeout(200)
+    log = pg.evaluate("saved.printLog")
+    exp = pg.evaluate("plan().rows.reduce((s,r)=>s+r.copies,0)")
+    check("log: a downloaded print adds one history line", len(log) == 1 and log[0]["piece"] == "Concert Test" and log[0]["copies"] == exp and not log[0]["reprint"], log)
+    check("log: history shows in step 4 with this piece's count", pg.is_visible("#logBox") and "printed 1 time" in pg.inner_text("#logBox summary"), pg.inner_text("#logBox summary"))
+    pg.check('#printMode input[value="some"]'); pg.wait_for_timeout(200)
+    pg.evaluate("(()=>{const r=plan().rows.find(x=>x.label==='Trumpet 1'); const s=reprintSel(r.start); s.on=true; s.names.add('Gus'); refresh();})()"); pg.wait_for_timeout(200)
+    download(pg, "#buildBtn", "log2.pdf"); pg.wait_for_timeout(200)
+    log = pg.evaluate("saved.printLog")
+    check("log: a reprint is logged as a reprint, with who it was for", len(log) == 2 and log[1]["reprint"] and log[1]["copies"] == 1 and "Gus" in log[1]["who"], log[-1:])
+    pg.check('#printMode input[value="all"]')
+
+def t_sync(pg):
+    import json, time
+    store = {}   # the hidden app-data folder: one file
+    def drive(r):
+        u, m = r.request.url, r.request.method
+        if "spaces=appDataFolder" in u:
+            files = [{"id": "SYNC1", "modifiedTime": store["t"]}] if store else []
+            return r.fulfill(status=200, content_type="application/json", body=json.dumps({"files": files}))
+        if "/upload/" in u:
+            body = r.request.post_data or ""
+            if m == "POST": body = body.split("\r\n\r\n", 2)[2].rsplit("\r\n--", 1)[0]
+            store["data"] = json.loads(body); store["t"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + ".%03dZ" % (int(time.time() * 1000) % 1000)
+            return r.fulfill(status=200, content_type="application/json", body=json.dumps({"id": "SYNC1"}))
+        if "alt=media" in u:
+            return r.fulfill(status=200, content_type="application/json", body=json.dumps(store["data"]))
+        return r.fulfill(status=404, body="")
+    gis = "window.google={accounts:{oauth2:{initTokenClient:o=>({requestAccessToken:()=>setTimeout(()=>o.callback({access_token:'t',expires_in:3600,scope:o.scope}),5)}),revoke:(t,c)=>c&&c()}}};"
+    ctx = pg.context.browser.new_context(accept_downloads=True, viewport={"width": 1100, "height": 900})
+    pages = [pg, ctx.new_page()]
+    for p in pages:
+        p.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(status=200, content_type="text/javascript", body=gis))
+        p.route("https://www.googleapis.com/**", drive)
+        p.on("pageerror", lambda e: page_errors.append(str(e)))
+    A, B = pages
+    connect = "saved.bn={clientId:'1-x.apps.googleusercontent.com',sheetId:'AAAAAAAAAAAAAAAAAAAAAAAAAAAA',tab:'Part Copier Roster',consented:true,driveOk:true}; persist(); renderRoster()"
+    fresh(A); A.evaluate("sessionStorage.clear()"); A.evaluate("openStep('s1')"); A.evaluate("document.getElementById('syncBox').open=true")
+    check("sync: without Google connected it says to connect first", "Connect Google" in A.inner_text("#syncAuto"))
+    A.evaluate(connect); A.wait_for_timeout(100)
+    A.evaluate("saved.ensembles['My Band'].Trumpet=3; saved.ensembles['My Band'].Flute=2; persist()")
+    A.click("#syncAutoNow"); A.wait_for_timeout(800)
+    check("sync: turning it on asks Google for the app-data folder only", "drive.appdata" in A.evaluate("bnToken.scope") and A.evaluate("saved.bn.appdataOk") is True)
+    check("sync: the setup is saved to the hidden Google folder", store.get("data", {}).get("ensembles", {}).get("My Band", {}).get("Trumpet") == 3, store.get("data", {}).get("ensembles"))
+    A.evaluate("saved.ensembles['My Band'].Trumpet=5; persist()"); A.wait_for_timeout(3800)
+    check("sync: a change is saved to Google a few seconds later", store["data"]["ensembles"]["My Band"]["Trumpet"] == 5)
+    # the other computer: signs in → gets the setup
+    B.goto(URL); B.evaluate("localStorage.clear(); sessionStorage.clear()"); B.reload(); B.evaluate("openStep('s1')"); B.evaluate("document.getElementById('syncBox').open=true")
+    B.evaluate(connect); B.wait_for_timeout(100); B.click("#syncAutoNow"); B.wait_for_timeout(800)
+    check("sync: another computer picks up the setup when it signs in", B.evaluate("counts().Trumpet") == 5 and B.evaluate("counts().Flute") == 2, B.evaluate("counts()"))
+    # both change before syncing → asked which to keep
+    time.sleep(1.2)
+    A.evaluate("saved.ensembles['My Band'].Trumpet=6; persist()"); A.wait_for_timeout(3800)
+    B.evaluate("saved.ensembles['My Band'].Flute=4; saved.localAt=new Date().toISOString(); localStorage.setItem('partCopier.v1', JSON.stringify(saved))")
+    B.click("#syncAutoNow"); B.wait_for_timeout(800)
+    check("sync: if both computers changed, it asks which to keep (nothing overwritten yet)", B.is_visible("#syncTakeRemote") and B.evaluate("counts().Flute") == 4)
+    B.click("#syncTakeRemote"); B.wait_for_timeout(300)
+    check("sync: 'use the other computer's' brings in its change", B.evaluate("counts().Trumpet") == 6)
+    B.evaluate("saved.ensembles['My Band'].Tuba=1; persist()"); B.wait_for_timeout(3800)
+    check("sync: after choosing, syncing carries on normally", store["data"]["ensembles"]["My Band"]["Tuba"] == 1)
+    B.evaluate("document.getElementById('syncAutoOn').click()"); B.wait_for_timeout(100)
+    B.evaluate("saved.ensembles['My Band'].Tuba=2; persist()"); B.wait_for_timeout(3600)
+    check("sync: switched off, nothing more is sent", store["data"]["ensembles"]["My Band"]["Tuba"] == 1 and "stays in this browser" in B.inner_text("#syncAuto"))
+    ctx.close()
+    for u in ["https://accounts.google.com/gsi/client", "https://www.googleapis.com/**"]: A.unroute(u)
+
+def t_colleague(pg):
+    # a director with no Music Library sheet: the loader explains instead of failing
+    import json
+    gis = "window.google={accounts:{oauth2:{initTokenClient:o=>({requestAccessToken:()=>setTimeout(()=>o.callback({access_token:'t',expires_in:3600,scope:o.scope}),5)}),revoke:(t,c)=>c&&c()}}};"
+    pg.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(status=200, content_type="text/javascript", body=gis))
+    pg.route("https://www.googleapis.com/**", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"files": []})))
+    fresh(pg); pg.evaluate("sessionStorage.clear()")
+    pg.evaluate("saved.bn={clientId:'1-x.apps.googleusercontent.com',sheetId:'AAAAAAAAAAAAAAAAAAAAAAAAAAAA',tab:'Roster',consented:true,driveOk:true,appdataOk:true}; persist(); mlRender()")
+    pg.evaluate("openStep('s2')"); pg.click("#mlDetails summary"); pg.click("#mlFind"); pg.wait_for_timeout(600)
+    t = pg.inner_text("#mlBox")
+    check("colleague: no Music Library found → a plain message and a paste-the-link box, no error", "No spreadsheet" in t and pg.is_visible("#mlSheet") and "err" not in (pg.get_attribute("#mlMsg", "class") or ""), t)
+    for u in ["https://accounts.google.com/gsi/client", "https://www.googleapis.com/**"]: pg.unroute(u)
+
 with sync_playwright() as p:
     b = p.chromium.launch(channel="chromium")
     ctx = b.new_context(accept_downloads=True, viewport={"width": 1100, "height": 900}); pg = ctx.new_page()
     pg.on("pageerror", lambda e: page_errors.append(str(e)))
     only = sys.argv[1:]
-    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_scan]:
+    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_log, t_sync, t_colleague, t_scan]:
         if only and t.__name__[2:] not in only: continue
         try: t(pg)
         except Exception as e: check(t.__name__ + " ran", False, traceback.format_exc(limit=2))
