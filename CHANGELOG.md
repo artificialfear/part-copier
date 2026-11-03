@@ -1,5 +1,10 @@
 # Part Copier changelog
 
+## 2026-11-02 (night)
+- **Lost-part reprints from the Raven Band Hub:** the Hub's Music requests → "Reprint in Part Copier" opens the piece straight in
+  "Reprint only some parts", with each student's part ticked and their name on it. Students not on a roster get a blank copy of
+  their instrument's part; anything it can't match is listed so you can pick it.
+
 ## 2026-11-02 (evening)
 - **Keep in sync through Google** (step 1 → Use this setup on another computer): your ensembles, counts, rosters, print rules
   and print history follow you to any computer where you sign in. Stored in Part Copier's own private folder in your Google

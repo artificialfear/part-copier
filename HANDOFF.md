@@ -52,6 +52,12 @@ tested locally, never committed.
   Logged after a successful build; shown in step 4 (#logBox).
 - Colleague check: no Music Library sheet → "No spreadsheet…" + paste-the-link box (t_colleague). 59 checks.
 
+## Reprint link from the Hub (2026-11-02, night)
+- ?folder=&title=&lib=&r=Last, First|Instrument|Part (repeated). mlFromLink → mlPending.reprint → mlLoad(…, reprint) →
+  applyReprint(): findStudent() matches nameKey (first+last, accents/punctuation stripped) across all rosters (current ensemble
+  first), switches to the ensemble with most matches, ticks rows whose plan names include the student (percussion narrowed by
+  part: Snare/Mallets/Timpani/Aux), else one blank copy by normInst + part number; status note lists done/blank/missing. t_reprint.
+
 ## Open items
 - Confirm on the school computer: Hub 🖨 button, Find my Music Library, and the new sync prompt (needs the Google Drive API on in
   the "Part Copier" Cloud project; drive.appdata may need adding to the consent screen's scopes if Google refuses it).
