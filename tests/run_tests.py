@@ -274,12 +274,53 @@ def t_colleague(pg):
     check("colleague: no Music Library found → a plain message and a paste-the-link box, no error", "No spreadsheet" in t and pg.is_visible("#mlSheet") and "err" not in (pg.get_attribute("#mlMsg", "class") or ""), t)
     for u in ["https://accounts.google.com/gsi/client", "https://www.googleapis.com/**"]: pg.unroute(u)
 
+def t_reprint(pg):
+    # a lost-part link from the Raven Band Hub: the piece loads straight into "Reprint only some parts"
+    import json, io
+    from urllib.parse import quote
+    from reportlab.pdfgen import canvas
+    def mk(label):
+        b = io.BytesIO(); c = canvas.Canvas(b, pagesize=(612, 792)); c.setFont("Helvetica-Bold", 22); c.drawString(60, 740, label)
+        c.setFont("Helvetica", 12); c.drawString(60, 700, "Frost March - test part"); c.showPage(); c.save(); return b.getvalue()
+    files = {"f1": "Frost March - Score.pdf", "f2": "Frost March - Flute.pdf", "f3": "Frost March - Trumpet 1.pdf", "f4": "Frost March - Trumpet 2.pdf"}
+    blobs = {k: mk(v.split(" - ")[1][:-4]) for k, v in files.items()}
+    def drive(r):
+        u = r.request.url
+        if "alt=media" in u: return r.fulfill(status=200, content_type="application/pdf", body=blobs[u.split("/files/")[1].split("?")[0]])
+        if "appDataFolder" in u: return r.fulfill(status=200, content_type="application/json", body=json.dumps({"files": []}))
+        return r.fulfill(status=200, content_type="application/json", body=json.dumps({"files": [{"id": k, "name": v, "size": "1"} for k, v in files.items()]}))
+    gis = "window.google={accounts:{oauth2:{initTokenClient:o=>({requestAccessToken:()=>setTimeout(()=>o.callback({access_token:'t',expires_in:3600,scope:o.scope}),5)}),revoke:(t,c)=>c&&c()}}};"
+    pg.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(status=200, content_type="text/javascript", body=gis))
+    pg.route("https://www.googleapis.com/**", drive)
+    fresh(pg); pg.evaluate("sessionStorage.clear()")
+    ros = "Name\tInstrument\tChair\nGray, Gus\tTrumpet\t1\nHill, Hana\tTrumpet\t2\nAdams, Ava\tFlute\t1"
+    pg.evaluate("""t => { saved.ensembles['7th Grade Band'] = blankCounts(); saved.current = '7th Grade Band';
+      saved.rosters['7th Grade Band'] = importRoster(t).roster; syncCountsFromRoster();
+      saved.ensembles['8th Grade Band'] = blankCounts(); saved.current = '8th Grade Band';
+      saved.bn = {clientId:'1-x.apps.googleusercontent.com',sheetId:'AAAAAAAAAAAAAAAAAAAAAAAAAAAA',tab:'R',consented:true,driveOk:true,appdataOk:true}; saved.syncAuto=false; persist(); }""", ros)
+    link = URL + "?folder=FOLDERFROST123&title=Frost%20March&r=" + quote("Hill, Hana|Trumpet|2") + "&r=" + quote("Nobody, Ned|Flute|") + "&r=" + quote("Zed, Zoe|Tuba|")
+    pg.goto(link); pg.wait_for_timeout(300)
+    check("reprint: the Load banner says it's a reprint for 3 students", "Reprint for 3 students" in pg.inner_text("#mlBox"), pg.inner_text("#mlBox"))
+    pg.click("#mlPendingGo"); pg.wait_for_selector("#s3:not([hidden])", timeout=60000); pg.wait_for_timeout(600)
+    check("reprint: switches to the student's ensemble and to Reprint mode", pg.evaluate("saved.current") == "7th Grade Band" and pg.evaluate("state.reprintMode"))
+    pr = pg.evaluate("printRows().filter(r=>r.copies>0).map(r=>({label:r.label, names:r.names, copies:r.copies}))")
+    t2 = next((r for r in pr if r["label"] == "Trumpet 2"), None)
+    check("reprint: the rostered student gets their part with their name", t2 and t2["names"] == ["Hana"] and t2["copies"] == 1, pr)
+    fl = next((r for r in pr if r["label"] == "Flute"), None)
+    check("reprint: a student not on the roster gets one blank copy of their instrument's part", fl and fl["copies"] == 1 and fl["names"] == [], pr)
+    check("reprint: nothing else is selected", len(pr) == 2, pr)
+    st = pg.inner_text("#buildStatus")
+    check("reprint: the note says who got what and what's missing", "Hana → Trumpet 2" in st and "Nobody, Ned → Flute" in st and "Zed, Zoe (Tuba)" in st, st)
+    out = download(pg, "#buildBtn", "reprint.pdf"); r = PdfReader(out)
+    check("reprint: the download has just those 2 copies, Hana's name stamped", len(r.pages) == 2 and any("Hana" in (x.extract_text() or "") for x in r.pages), len(r.pages))
+    for u in ["https://accounts.google.com/gsi/client", "https://www.googleapis.com/**"]: pg.unroute(u)
+
 with sync_playwright() as p:
     b = p.chromium.launch(channel="chromium")
     ctx = b.new_context(accept_downloads=True, viewport={"width": 1100, "height": 900}); pg = ctx.new_page()
     pg.on("pageerror", lambda e: page_errors.append(str(e)))
     only = sys.argv[1:]
-    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_log, t_sync, t_colleague, t_scan]:
+    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_log, t_sync, t_colleague, t_reprint, t_scan]:
         if only and t.__name__[2:] not in only: continue
         try: t(pg)
         except Exception as e: check(t.__name__ + " ran", False, traceback.format_exc(limit=2))
