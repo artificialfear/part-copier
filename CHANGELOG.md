@@ -13,6 +13,9 @@
   "printed N times, last …" for the piece you're working on.
 - Google sign-in asks for one more permission the first time (the private sync folder).
 
+## 2026-11-03
+- Music Library: a piece whose folder holds one unsplit full-set scan opens as a full set (parts found automatically), with a separate score put in front.
+
 ## 2026-11-02
 - Pieces loaded from the Music Library bring their score along (it only prints if you click Print a copy).
 - Score: one-click **Print a copy** on the Score row; the score can also be picked in "Reprint only some parts".

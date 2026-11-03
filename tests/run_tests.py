@@ -180,6 +180,12 @@ def t_drive(pg):
     check("drive: picking a piece loads its parts and the score (Mac junk left out)", L == ["Score", "Flute", "Trumpet 1", "Trumpet 2"], L)
     check("drive: the score is loaded but not printed by default", row(pg, "Score")["copies"] == 0 and pg.is_visible('#partRows [data-score]'))
     check("drive: the token asked for read-only Drive access", "drive.readonly" in pg.evaluate("bnToken.scope"))
+    # a folder with one unsplit full-set file is read as a full set
+    full = open(fx("concert.pdf"), "rb").read(); files.clear(); files.update({"g1": "Lighthouse March.pdf"}); blobs["g1"] = full
+    pg.evaluate("mlLoad('FOLDERFULL1234567', 'Lighthouse March')"); pg.wait_for_timeout(2500)
+    L2 = [r["label"] for r in rows(pg)]
+    check("drive: an unsplit full-set file is split into its parts", "Trumpet 1" in L2 and "Clarinet 1" in L2 and len(L2) > 10, L2)
+    files.clear(); files.update({"f1": "Frost March - Score.pdf", "f2": "Frost March - Flute.pdf", "f3": "Frost March - Trumpet 1.pdf", "f4": "Frost March - Trumpet 2.pdf", "f5": "._Frost March - Flute.pdf"})
     # link from the Raven Band Hub, already signed in: loads by itself
     seen.clear()
     pg.goto(URL + "?folder=FOLDERFROST123&title=Frost%20March&lib=LIBLIBLIBLIBLIBLIBLIBLIBLIB"); pg.wait_for_selector("#s3:not([hidden])", timeout=60000); pg.wait_for_timeout(400)

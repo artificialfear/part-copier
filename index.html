@@ -1617,6 +1617,14 @@ async function mlLoad(folderId, title, reprint){
       files.push(new File([await r.arrayBuffer()], parts[i].name, { type: "application/pdf" }));
     }
     mlPending = null; mlOpen = false;
+    // one unsplit full-set file (a scan not yet split into parts): read it as a full set, with any separate score in front
+    const sets = files.filter(f => !ML_SCORE.test(f.name)), scores = files.filter(f => ML_SCORE.test(f.name));
+    if (sets.length === 1 && scores.length){
+      st.textContent = "Putting the score and the full set together…";
+      const doc = await PDFLib.PDFDocument.create();
+      for (const f of scores.concat(sets)){ const src = await PDFLib.PDFDocument.load(await f.arrayBuffer()); (await doc.copyPages(src, src.getPageIndices())).forEach(pg => doc.addPage(pg)); }
+      return openFiles([new File([await doc.save()], sets[0].name, { type: "application/pdf" })]);
+    }
     await openFiles(files);
     if (reprint && reprint.length) applyReprint(reprint);
   } catch (err) {
