@@ -66,3 +66,13 @@ tested locally, never committed.
 ## Decisions
 - concert-copies skill retired (2026-11-01); the web tool is the only path.
 - OCR stays at 1800 px header width — 1300 px was not faster on ePrints (JPEG decode bound) and misread Afro Blue.
+
+## Page lists for the Raven Band Hub (2026-11-04)
+- New scope DRIVEFILE_SCOPE (drive.file: only files Part Copier creates); cfg.drivefileOk forces one consent prompt.
+- mlLoad remembers the Drive source when a piece's full set is ONE PDF (state.driveSrc = { id, name, offset = score pages put
+  in front }); openFile clears it, so a PDF opened from the computer is never saved as a Drive piece.
+- refresh() → pmSoon() (3 s debounce) → pmSave(): segments() instrument parts in the Drive file's own page numbers → one file
+  "Part Copier – part pages.json" in My Drive: { v: 1, files: { <fileId>: { name, total, saved, parts: [{label, start, end}] } } }.
+  Read-modify-write; skipped when nothing changed (pmLast), while a scan is still being read (ocrDone), or without the scope.
+- The Hub (MusicRequests.js rbhMreqPageMap_) reads that file to print just one student's pages from a full set. Keep the format.
+- t_pagemap (5 checks). 72/72 pass (t_sync's "connect first" check can fail when run alone, not in the full run).

@@ -321,12 +321,65 @@ def t_reprint(pg):
     check("reprint: the download has just those 2 copies, Hana's name stamped", len(r.pages) == 2 and any("Hana" in (x.extract_text() or "") for x in r.pages), len(r.pages))
     for u in ["https://accounts.google.com/gsi/client", "https://www.googleapis.com/**"]: pg.unroute(u)
 
+def t_pagemap(pg):
+    # a full set that is ONE PDF in Drive: Part Copier saves which pages are which part for the Raven Band Hub
+    import json, io
+    from reportlab.pdfgen import canvas
+    def mk(labels):
+        b = io.BytesIO(); c = canvas.Canvas(b, pagesize=(612, 792))
+        for lab in labels:
+            c.setFont("Helvetica-Bold", 22); c.drawString(60, 740, lab); c.setFont("Helvetica", 12); c.drawString(60, 700, "Frost March - test part"); c.showPage()
+        c.save(); return b.getvalue()
+    blobs = {"sc": mk(["Score", "Score"]), "set": mk(["Flute", "Trumpet 1", "Trumpet 2", "Trumpet 2"])}
+    files = {"sc": "Frost March - Score.pdf", "set": "Frost March (parts).pdf"}
+    saved_files, calls = {}, []
+    def drive(r):
+        u, m = r.request.url, r.request.method
+        if "appDataFolder" in u: return r.fulfill(status=200, content_type="application/json", body=json.dumps({"files": []}))
+        if "/upload/" in u:
+            body = r.request.post_data or ""
+            if m == "POST":
+                calls.append("create"); saved_files["pm1"] = body.split("\r\n\r\n")[-1].rsplit("\r\n--", 1)[0]
+                return r.fulfill(status=200, content_type="application/json", body=json.dumps({"id": "pm1"}))
+            calls.append("update"); saved_files["pm1"] = body
+            return r.fulfill(status=200, content_type="application/json", body="{}")
+        if "alt=media" in u:
+            fid = u.split("/files/")[1].split("?")[0]
+            if fid == "pm1": return r.fulfill(status=200, content_type="application/json", body=saved_files["pm1"])
+            return r.fulfill(status=200, content_type="application/pdf", body=blobs[fid])
+        if "part%20pages" in u or "part pages" in u:
+            return r.fulfill(status=200, content_type="application/json", body=json.dumps({"files": [{"id": "pm1"}] if "pm1" in saved_files else []}))
+        return r.fulfill(status=200, content_type="application/json", body=json.dumps({"files": [{"id": k, "name": v, "size": "1"} for k, v in files.items()]}))
+    gis = "window.google={accounts:{oauth2:{initTokenClient:o=>({requestAccessToken:()=>setTimeout(()=>o.callback({access_token:'t',expires_in:3600,scope:o.scope}),5)}),revoke:(t,c)=>c&&c()}}};"
+    pg.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(status=200, content_type="text/javascript", body=gis))
+    pg.route("https://www.googleapis.com/**", drive)
+    fresh(pg); pg.evaluate("sessionStorage.clear()")
+    pg.evaluate("""() => { saved.bn = {clientId:'1-x.apps.googleusercontent.com',sheetId:'AAAAAAAAAAAAAAAAAAAAAAAAAAAA',tab:'R',consented:true,driveOk:true,appdataOk:true}; saved.syncAuto=false; persist(); }""")
+    pg.goto(URL + "?folder=FOLDERFROST123&title=Frost%20March"); pg.wait_for_timeout(300)
+    pg.click("#mlPendingGo"); pg.wait_for_selector("#s3:not([hidden])", timeout=60000); pg.wait_for_timeout(4500)
+    check("page list: signing in asks once more, for Part Copier's own files (drive.file)", "drive.file" in pg.evaluate("bnToken.scope") and pg.evaluate("saved.bn.drivefileOk") is True)
+    data = json.loads(saved_files.get("pm1", "{}") or "{}")
+    ent = (data.get("files") or {}).get("set") or {}
+    parts = [(p["label"], p["start"], p["end"]) for p in ent.get("parts", [])]
+    check("page list: saved for the full-set file, in ITS page numbers (the score put in front doesn't count)",
+          calls[:1] == ["create"] and parts == [("Flute", 1, 1), ("Trumpet 1", 2, 2), ("Trumpet 2", 3, 4)] and ent.get("total") == 4, (calls, parts, ent.get("total")))
+    pg.evaluate("""() => { const k = [...state.starts.keys()].sort((a,b)=>a-b)[2]; state.starts.get(k).label = 'Flute 2'; refresh(); }""")
+    pg.wait_for_timeout(3800)
+    data = json.loads(saved_files.get("pm1", "{}") or "{}")
+    labs = [p["label"] for p in data["files"]["set"]["parts"]]
+    check("page list: a fix in Check the parts updates the same file", calls.count("create") == 1 and "update" in calls and "Flute 2" in labs, (calls, labs))
+    n = len(calls); pg.evaluate("refresh()"); pg.wait_for_timeout(3500)
+    check("page list: nothing changed → nothing saved again", len(calls) == n, calls)
+    pg.set_input_files("#file", fx("concert.pdf")); pg.wait_for_selector("#s3:not([hidden])", timeout=120000); pg.wait_for_timeout(3800)
+    check("page list: a PDF opened from the computer is never saved as that piece", pg.evaluate("state.driveSrc") is None and len(calls) == n, calls)
+    for u in ["https://accounts.google.com/gsi/client", "https://www.googleapis.com/**"]: pg.unroute(u)
+
 with sync_playwright() as p:
     b = p.chromium.launch(channel="chromium")
     ctx = b.new_context(accept_downloads=True, viewport={"width": 1100, "height": 900}); pg = ctx.new_page()
     pg.on("pageerror", lambda e: page_errors.append(str(e)))
     only = sys.argv[1:]
-    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_log, t_sync, t_colleague, t_reprint, t_scan]:
+    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_log, t_sync, t_colleague, t_reprint, t_pagemap, t_scan]:
         if only and t.__name__[2:] not in only: continue
         try: t(pg)
         except Exception as e: check(t.__name__ + " ran", False, traceback.format_exc(limit=2))

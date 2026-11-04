@@ -213,3 +213,8 @@ Uses [PDF.js](https://mozilla.github.io/pdf.js/) (Apache-2.0) to read PDFs,
 [pdf-lib](https://pdf-lib.js.org/) (MIT) to build the print file, and
 [Tesseract.js](https://tesseract.projectnaptha.com/) (Apache-2.0) to read part names from
 scanned pages; all are bundled in `lib/` (Tesseract in `lib/ocr/`).
+
+### Page lists (Raven Band Hub)
+When a piece is loaded from Google Drive and its whole set is one PDF, Part Copier saves which pages are which part
+to a small file in your Drive, "Part Copier – part pages.json". It can only see files it made itself. The Raven Band Hub
+uses it to print just one student's pages for a lost part. Signing in asks for this permission once.
