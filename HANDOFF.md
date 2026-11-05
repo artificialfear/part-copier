@@ -86,6 +86,12 @@ tested locally, never committed.
 - Confirm on the school computer: Hub 🖨 button, Find my Music Library, and the new sync prompt (needs the Google Drive API on in
   the "Part Copier" Cloud project; drive.appdata may need adding to the consent screen's scopes if Google refuses it).
 - Deletions don't sync (an ensemble deleted on one computer stays on others) — by design for now.
+- **Concert mode (on hold, Mat 2026-11-04: wait until more pieces have PDFs).** Idea: pick an ensemble + several pieces
+  (Music Library for Mat, dropped PDFs for directors without Google) → one print PDF, piece-by-piece or each student's
+  whole folder together, one hand-out list. Questions still to ask Mat: default order; stop only on pieces where
+  detection was unsure (recommended) vs. review every piece.
+- Mat's wife (high school band, counts only, no Google) will try it with a real HS set: watch for Horn 1–4,
+  Trumpet 1–3 and doubles (piccolo, English horn) being misread.
 
 ## Decisions
 - concert-copies skill retired (2026-11-01); the web tool is the only path.
