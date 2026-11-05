@@ -68,10 +68,41 @@ function normInst(text){
   for (const [re, id] of INST_RX) if (re.test(t)) return id;
   return null;
 }
+// Words that can start an instrument name ("Alto Sax", "Bass Clarinet", "French Horn") \u2014 never read as part of a student's name.
+const INST_LEAD = /^(alto|tenor|bari|baritone|bass|contra\w*|bb|b\u266D|eb|e\u266D|french|f|string|electric|upright|double|snare|tri|1st|2nd|3rd|4th)$/i;
+// One roster line typed or pasted with spaces instead of tabs: "Macharia, Gabriel  Flute", "Lee, Ava Alto Sax 2",
+// "Kai Brown Euphonium TC". The instrument (and an optional chair number) is read from the end; the rest is the name.
+function looseRow(line){
+  const toks = line.trim().split(/\s+/);
+  let chair = "";
+  if (toks.length > 2 && /^\d+(st|nd|rd|th)?$/i.test(toks[toks.length - 1])) chair = toks.pop();
+  for (let k = Math.min(3, toks.length - 1); k >= 1; k--){
+    const suf = toks.slice(-k), inst = normInst(suf.join(" "));
+    if (!inst) continue;
+    // a longer ending only counts if its first word is part of the instrument ("Alto Sax"), not the end of a name ("Ava Sax")
+    if (k > 1 && !INST_LEAD.test(suf[0].replace(/[.,]/g, "")) && normInst(suf.slice(1).join(" ")) === inst) continue;
+    const name = toks.slice(0, -k).join(" ").replace(/[,\s]+$/, "");
+    if (name) return [name, suf.join(" "), chair];
+  }
+  return null;
+}
 function parseTable(text){
   text = String(text || "").replace(/\r\n?/g, "\n").replace(/^\uFEFF/, "").trim();
   if (!text) return [];
   if (text.includes("\t")) return text.split("\n").map(l => l.split("\t"));
+  if (!text.includes('"')){
+    // no tabs and no quoted CSV: keep plain CSV rows ("Smith,Flute,1"), but read a "Last, First Instrument" line as one row
+    return text.split("\n").map(line => {
+      const csv = line.split(",").map(c => c.trim());
+      if (/^\s*(name|student|first)\b/i.test(line) && /instrument|\bpart\b|\binst\b/i.test(line))
+        return csv.length > 1 ? csv : line.trim().split(/\s+/);           // header row
+      if (csv.length >= 2 && normInst(csv[1])){                            // 2nd cell is just an instrument ("Flute", "Alto Sax")
+        const lr = looseRow(csv[1]);
+        if (!lr || lr[0].split(/\s+/).every(w => INST_LEAD.test(w))) return csv;
+      }
+      return looseRow(line) || csv;
+    });
+  }
   const rows = []; let row = [], cell = "", q = false;
   for (let i = 0; i < text.length; i++){
     const ch = text[i];

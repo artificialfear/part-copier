@@ -82,6 +82,20 @@ tested locally, never committed.
   first), switches to the ensemble with most matches, ticks rows whose plan names include the student (percussion narrowed by
   part: Snare/Mallets/Timpani/Aux), else one blank copy by normInst + part number; status note lists done/blank/missing. t_reprint.
 
+## Loose roster pastes (2026-11-05)
+- parseTable (02-settings-roster.js): with no tab and no quote in the text, each line is plain CSV when its 2nd cell is only
+  an instrument ("Smith,Flute,1", "Lee,Alto Sax"); otherwise looseRow() reads it as "<name> <instrument> [chair]" from the
+  end (≤3 instrument words; a longer ending only counts if its first word is in INST_LEAD, so "Ava Alto Sax" → Ava + Alto Sax).
+  A spaced header row ("Name Instrument Chair") is split on whitespace. Tab and quoted-CSV input unchanged. t_loose (9 checks).
+- Real case: a "Last, First<spaces>Instrument" list copied out of chat printed last names only.
+
+## GMEA All-State audition packets (2026-11-05, outside the repo)
+- Mat prints his students' middle school GMEA district audition packets through Part Copier with no app change: one 80-page PDF
+  (16 five-page packets) carries a PartCopierMap with one segment per instrument (Eb contra-alto mapped to "Alto Clarinet",
+  Euphonium BC/TC separate, Percussion). He opens it in step 2 with an "auditioners" ensemble roster. The file holds GMEA's
+  music, so it is never committed. Percussion needs Print rules → "Every percussionist gets every percussion part" on
+  (off = one unnamed copy). Rebuild the file each year from GMEA's new folders.
+
 ## Open items
 - Confirm on the school computer: Hub 🖨 button, Find my Music Library, and the new sync prompt (needs the Google Drive API on in
   the "Part Copier" Cloud project; drive.appdata may need adding to the consent screen's scopes if Google refuses it).
@@ -105,4 +119,4 @@ tested locally, never committed.
   "Part Copier – part pages.json" in My Drive: { v: 1, files: { <fileId>: { name, total, saved, parts: [{label, start, end}] } } }.
   Read-modify-write; skipped when nothing changed (pmLast), while a scan is still being read (ocrDone), or without the scope.
 - The Hub (MusicRequests.js rbhMreqPageMap_) reads that file to print just one student's pages from a full set. Keep the format.
-- t_pagemap (5 checks). 72/72 pass (t_sync's "connect first" check can fail when run alone, not in the full run).
+- t_pagemap (5 checks). 88/88 pass as of 2026-11-05 (t_sync's "connect first" check can fail when run alone, not in the full run).

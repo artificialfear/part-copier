@@ -292,6 +292,30 @@ def t_basic(pg):
     check("basic: a Hub link still offers its piece without the switch", "Test Piece" in pg.inner_text("#mlBox"))
     pg.goto(URL)
 
+def t_loose(pg):
+    # rosters pasted from an email, doc or chat lose their tabs: "Last, First   Instrument"
+    fresh(pg)
+    cases = [
+        ("Doe, Jane\tFlute\nRoe, Rick\tTrombone", [("Jane", "Doe", "Flute", None), ("Rick", "Roe", "Trombone", None)]),
+        ("Doe, Jane    Flute\nRoe Jr., Rick  Trombone", [("Jane", "Doe", "Flute", None), ("Rick", "Roe Jr.", "Trombone", None)]),
+        ("Doe, Jane Flute\nLee, Ava Alto Sax 2\nKim, Bo Bass Clarinet\nPark, Cy Euphonium TC\nOrr, Di Euphonium\nFay, Ed French Horn 1st\nGil, Flo Percussion",
+         [("Jane", "Doe", "Flute", None), ("Ava", "Lee", "Alto Sax", 2), ("Bo", "Kim", "Bass Clarinet", None), ("Cy", "Park", "Euphonium TC", None),
+          ("Di", "Orr", "Euphonium BC", None), ("Ed", "Fay", "Horn", 1), ("Flo", "Gil", "Percussion", None)]),
+        ("Jane Doe Flute\nRick Roe   Tuba", [("Jane", "Doe", "Flute", None), ("Rick", "Roe", "Tuba", None)]),
+        ("Name,Instrument,Chair\nDoe Jane,Flute,1\nLee Ava,Alto Sax,2", [("Doe", "Jane", "Flute", 1), ("Lee", "Ava", "Alto Sax", 2)]),
+        ("Doe,Flute\nLee,Alto Sax", [("Doe", "", "Flute", None), ("Lee", "", "Alto Sax", None)]),
+        ("Name Instrument Chair\nDoe, Jane Clarinet 3", [("Jane", "Doe", "Clarinet", 3)]),
+        ('"Doe, Jane",Flute,1', [("Jane", "Doe", "Flute", 1)]),
+    ]
+    for i, (text, want) in enumerate(cases, 1):
+        got = pg.evaluate("t => { const r = importRoster(t); return r.error ? r.error : r.roster.students.map(s => [s.first, s.last, s.inst, s.chair]); }", text)
+        check(f"loose roster paste {i}", got == [list(w) for w in want], got)
+    # end to end: pasting with spaces prints first names, not last names
+    pg.evaluate("openStep('s1')"); pg.click("#rosterOpenBtn"); pg.fill("#rosterText", "Doe, Jane    Flute\nRoe, Rick    Flute"); pg.click("#rosterImport")
+    load(pg, "concert.pdf")
+    names = [r["names"] for r in rows(pg) if r["names"]]
+    check("loose roster paste: first names reach the parts", any("Jane" in n for n in names) and not any("Doe" in n for n in names), names)
+
 def t_colleague(pg):
     # a director with no Music Library sheet: the loader explains instead of failing
     import json
@@ -404,7 +428,7 @@ with sync_playwright() as p:
     ctx = b.new_context(accept_downloads=True, viewport={"width": 1100, "height": 900}); pg = ctx.new_page()
     pg.on("pageerror", lambda e: page_errors.append(str(e)))
     only = sys.argv[1:]
-    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_log, t_sync, t_basic, t_colleague, t_reprint, t_pagemap, t_scan]:
+    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_log, t_sync, t_basic, t_loose, t_colleague, t_reprint, t_pagemap, t_scan]:
         if only and t.__name__[2:] not in only: continue
         try: t(pg)
         except Exception as e: check(t.__name__ + " ran", False, traceback.format_exc(limit=2))

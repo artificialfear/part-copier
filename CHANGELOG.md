@@ -1,5 +1,10 @@
 # Part Copier changelog
 
+## 2026-11-05
+- **Rosters pasted from an email, doc or chat now keep first names.** When the tabs between columns turn into spaces,
+  a line like "Smith, Jordan Trumpet 2" used to print "Smith" on the part; it now reads the instrument (and chair) from
+  the end of the line and the name from the rest. Spreadsheet pastes and CSV files work exactly as before.
+
 ## 2026-11-04
 - **Simpler for directors who just type counts:** the Google features (Sheet roster, Music Library, Google sync) are hidden
   until you tick **Print rules → Use Google features**. If you've already connected Google, nothing changes for you.
