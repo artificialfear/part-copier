@@ -4,6 +4,23 @@ Single-page tool (index.html) on GitHub Pages: https://artificialfear.github.io/
 Libraries bundled in lib/ (PDF.js 3.11.174, pdf-lib 1.17.1, Tesseract.js 5.1.1 + eng best_int).
 No student data in the repo — rosters live in each browser's localStorage (key partCopier.v1).
 
+## Code layout (split 2026-11-04)
+**Edit src/, then run `python3 build.py`. Never edit index.html** — it is generated, and the tests refuse to run
+(`build.py --check`) when it doesn't match src/. Served as one page on purpose: no stale-cache mix of old/new files.
+- src/index.html — markup; `<!--INLINE:path-->` lines mark where the CSS and each script go (that list = load order).
+- src/css/app.css — all styles.
+- src/js — one shared scope, concatenated in order (top-level `const`/`let` are visible to later files):
+  01-instruments (part-name detection, OCR word fixes, flex) · 02-settings-roster (saved setup, roster import) ·
+  03-copy-plan (state, plan(), percussion assignments) · 04-ensemble (ensemble/roster UI; defines `$`, `esc`) ·
+  05-sheet-roster (Google sign-in, Sheet roster pull, counts UI) · 06-setup-sync (setup file, Google sync,
+  print history, print rules UI) · 07-music-library (Drive loader, page lists for the Hub) · 08-hub-reprint ·
+  09-load-pdf (open/merge files, detectStarts, inferNames) · 10-scan-cleanup · 11-ocr (readPageImages, findScore) ·
+  12-review (replace a part, reprint mode, review, piece library, download) · 13-page-map (page map, parts table) ·
+  14-steps (folds, refresh(), percussion grid, hand-out list, preflight) · 15-print (hidden-text strip, name spot,
+  build) · 16-start (theme toggle, start-up).
+- A new file: add it to src/js and add its `<!--INLINE:js/…-->` line in src/index.html (build.py stops if a
+  .js/.css file in src/ isn't listed).
+
 ## How it works (where to look)
 - Detection: RX/famHits/classify/labelFromLines (part names), flexParse (numbered flex voices),
   detectStarts (title-based part starts, continuation headers), inferNames (copies, renumbering, score order),

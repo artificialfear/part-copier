@@ -193,6 +193,12 @@ rosters contains student names — keep it in your school account.
    Branch: `main`, folder `/ (root)` → Save.
 4. After a minute or two the tool is live at `https://<username>.github.io/part-copier/`.
 
+## Changing the code
+
+The page is built from the files in `src/`: `src/index.html` (markup), `src/css/app.css` and `src/js/NN-*.js`
+(one shared script, in the numbered order). After editing them, run `python3 build.py` to rebuild `index.html`,
+which is the one file GitHub Pages serves. Never edit `index.html` itself: the next build overwrites it.
+
 ## Tests
 
 `python3 tests/make_fixtures.py` builds made-up test PDFs and rosters; `python3 tests/run_tests.py` runs the

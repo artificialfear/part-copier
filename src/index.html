@@ -1,0 +1,239 @@
+<!doctype html>
+<!-- Built by build.py from src/. Edit the files in src/, not this one: the next build overwrites it. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#131518">
+<script>(function(){var t="dark";try{t=localStorage.getItem("partCopier.theme")||"dark";}catch(e){}document.documentElement.setAttribute("data-theme",t==="light"?"light":"dark");})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Part Copier</title>
+<meta name="description" content="Turn a full set of band parts into one print-ready PDF with the right number of copies of each part.">
+<style>
+<!--INLINE:css/app.css-->
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Part Copier</h1>
+    <p>Drop in a full set of band parts and get back one PDF with the right number of copies of every part, ready to send to the copier as a single job. Your music never leaves your computer.</p>
+  </div>
+  <button class="theme-toggle" id="themeToggle" type="button"></button>
+</header>
+
+<main>
+  <div class="fold-bar"><button type="button" class="link" id="foldAll">Collapse all</button><button type="button" class="link" id="unfoldAll">Expand all</button></div>
+  <section class="card" id="s1">
+    <h2 class="fold" data-fold="s1" role="button" tabindex="0" aria-expanded="true"><span class="n">1</span>Your ensemble<span class="sum" id="sum1"></span><select id="ensQuick" class="quick" aria-label="Switch ensemble"></select><span class="chev" aria-hidden="true"></span></h2>
+    <p class="hint" id="ensHint">Enter how many students play each instrument, or import a roster to print a named copy for each student. Everything is saved in this browser, so set up each ensemble once.</p>
+    <div class="row">
+      <select id="ensSelect" aria-label="Ensemble"></select>
+      <button id="ensNew">New ensemble</button>
+      <button id="ensRename">Rename</button>
+      <button id="ensDelete">Delete</button>
+      <button id="ensMove" title="Save this setup to a file, or load one from another computer">Move setup…</button>
+    </div>
+    <div id="rosterBox"></div>
+    <div id="countGrid"></div>
+    <div class="total" id="countTotal"></div>
+
+    <details class="settings" id="settingsBox">
+      <summary>Print rules</summary>
+      <div class="rules">
+        <div class="rules-group">Splitting parts</div>
+        <div class="rule">
+          <div class="rule-text"><b>Uneven split — extra copy goes to</b><span>When players don't divide evenly, e.g. 7 trumpets on Trumpet 1 and 2.</span></div>
+          <div class="rule-ctl"><select id="setOdd"><option value="first">the 1st part</option><option value="last">the last part</option></select></div>
+        </div>
+        <label class="rule clickable">
+          <div class="rule-text"><b>Every percussionist gets every percussion part</b><span>Turn off to give each percussion part 1 copy and adjust by hand.</span></div>
+          <div class="rule-ctl"><input type="checkbox" id="setPerc"></div>
+        </label>
+
+        <div class="rules-group">Extra copies</div>
+        <div class="rule">
+          <div class="rule-text"><b>Spare copies of each part</b><span>Added to every part that prints.</span></div>
+          <div class="rule-ctl"><input type="number" id="setSpares" min="0" max="20"></div>
+        </div>
+        <div class="rule">
+          <label class="rule-text clickable" for="setScore"><b>Include the full score</b><span>Check to print the score, then set how many copies.</span></label>
+          <div class="rule-ctl"><input type="checkbox" id="setScore" aria-label="Include the full score"><input type="number" id="setScoreCopies" min="1" max="20" aria-label="Score copies"></div>
+        </div>
+
+        <div class="rules-group">Printing</div>
+        <label class="rule clickable">
+          <div class="rule-text"><b>Printing double-sided</b><span>Adds a blank page after odd-length parts so every part starts on a new sheet.</span></div>
+          <div class="rule-ctl"><input type="checkbox" id="setDuplex"></div>
+        </label>
+      </div>
+    </details>
+
+    <details class="settings" id="syncBox">
+      <summary>Use this setup on another computer</summary>
+      <p class="hint" style="margin-top:8px">Your setup is saved in this browser. With Google connected, “Keep in sync” carries it to any computer where you sign in. Without Google, save a setup file here and load it on the other computer.</p>
+      <div class="rules">
+        <div class="rule" id="syncAuto"></div>
+        <div class="status" id="syncAutoMsg" style="margin:0 0 6px"></div>
+        <div class="rule">
+          <div class="rule-text"><b>Save setup file</b><span>Your ensembles, counts, print rules and scan-cleanup settings.</span></div>
+          <div class="rule-ctl"><label class="chk" title="Rosters contain student names"><input type="checkbox" id="syncRosters" checked> Include rosters</label><button type="button" id="syncSave">Save</button></div>
+        </div>
+        <div class="rule">
+          <div class="rule-text"><b>Load setup file</b><span>Adds the file's ensembles here (same-named ones are replaced) and uses its print rules.</span></div>
+          <div class="rule-ctl"><label class="link" style="cursor:pointer;color:var(--accent);text-decoration:underline;font-size:14px">Choose file<input type="file" id="syncLoad" accept=".json,application/json" hidden></label></div>
+        </div>
+      </div>
+      <p class="note" style="margin:8px 0 0">A file with rosters contains student names — keep it in your school account, not a shared folder.</p>
+      <div class="status" id="syncStatus"></div>
+    </details>
+  </section>
+
+  <section class="card" id="s2">
+    <h2 class="fold" data-fold="s2" role="button" tabindex="0" aria-expanded="true"><span class="n">2</span>Full set PDF<span class="sum" id="sum2"></span><span class="chev" aria-hidden="true"></span></h2>
+    <label class="drop" id="drop">
+      <strong>Drop the full-set PDF here — or several part PDFs at once</strong>
+      <span class="note">or click to choose files — one PDF with every part, or one PDF per part (named like “Trumpet 1.pdf”)</span>
+      <input type="file" id="file" accept="application/pdf,.pdf" multiple hidden>
+    </label>
+    <div class="status" id="loadStatus"></div>
+    <div id="mlBox"></div>
+    <div id="libBox" hidden>
+      <div class="rules-group" style="margin-top:14px">Your saved pieces</div>
+      <ul class="lib-list" id="libList"></ul>
+    </div>
+    <div class="progress" id="progress" hidden><div></div></div>
+
+    <details class="settings" id="mergeBox" hidden>
+      <summary id="mergeSummary">Merged files</summary>
+      <p class="hint" style="margin-top:8px">Each file is one part, sorted into score order. Use the arrows if anything is out of place, or remove a file you don't need.</p>
+      <ol class="merge-list" id="mergeList"></ol>
+      <div class="row" style="margin-top:8px"><button type="button" id="mergeDownload">Download merged full set</button></div>
+    </details>
+
+    <details class="settings" id="cleanBox" hidden>
+      <summary>Clean up a scanned set</summary>
+      <p class="hint" style="margin-top:8px">For PDFs made on a copier or phone. Straightens crooked pages, turns grey paper white, removes scanner shadows and blank pages, and fits 9×12 parts onto letter paper. Clean up <b>before</b> marking parts in the page map — removing blank pages renumbers them.</p>
+      <div class="rules">
+        <label class="rule clickable"><div class="rule-text"><b>Straighten crooked pages</b><span>Lines up the staves with the page edge.</span></div><div class="rule-ctl"><input type="checkbox" id="clDeskew"></div></label>
+        <div class="rule"><div class="rule-text"><b>Color</b><span>Black &amp; white is crispest and makes the smallest files; grayscale keeps faint pencil marks.</span></div>
+          <div class="rule-ctl"><select id="clMode"><option value="bw">Black &amp; white</option><option value="gray">Grayscale</option></select></div></div>
+        <div class="rule"><div class="rule-text"><b>Darkness</b><span>Raise it if notes or staff lines come out broken; lower it if the paper looks speckled.</span></div>
+          <div class="rule-ctl"><input type="range" id="clDark" min="-40" max="40" step="5" style="width:140px"><span id="clDarkVal" class="note" style="width:28px;text-align:right"></span></div></div>
+        <label class="rule clickable"><div class="rule-text"><b>Remove dark scanner edges</b><span>Only for scans with black shadows or bands along the edges (e.g. scanned on the glass with the lid up). Leave off otherwise — it can nibble music that touches the edge.</span></div><div class="rule-ctl"><input type="checkbox" id="clEdges"></div></label>
+        <label class="rule clickable"><div class="rule-text"><b>Remove blank pages</b><span>Drops empty backs of single-sided parts scanned two-sided.</span></div><div class="rule-ctl"><input type="checkbox" id="clBlanks"></div></label>
+        <div class="rule"><div class="rule-text"><b>Page size</b><span>Fit to letter trims the empty margins, then scales the music to fill an 8.5×11 page so nothing gets cut off.</span></div>
+          <div class="rule-ctl"><select id="clFit"><option value="letter">Fit to letter (8.5×11)</option><option value="keep">Keep original size</option></select></div></div>
+        <div class="rule"><div class="rule-text"><b>Quality</b><span>300 dpi is sharpest; 200 dpi makes smaller files and works faster.</span></div>
+          <div class="rule-ctl"><select id="clDpi"><option value="300">300 dpi</option><option value="200">200 dpi</option></select></div></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <span class="note">Preview page</span><input type="number" id="clPreviewPage" min="1" value="1">
+        <button type="button" id="clPreview">Preview</button>
+        <button type="button" class="primary" id="clRun">Clean up all pages</button>
+      </div>
+      <div class="clean-preview" id="clPreviewBox" hidden>
+        <figure><figcaption>Before</figcaption><canvas id="clBefore"></canvas></figure>
+        <figure><figcaption>After</figcaption><canvas id="clAfter"></canvas></figure>
+      </div>
+      <div class="status" id="cleanStatus"></div>
+      <div class="row" id="cleanActions" hidden style="margin-top:8px">
+        <button type="button" id="clDownload">Download cleaned PDF</button>
+        <button type="button" id="clUndo">Use the original instead</button>
+      </div>
+    </details>
+  </section>
+
+  <section class="card" id="s3" hidden>
+    <h2 class="fold" data-fold="s3" role="button" tabindex="0" aria-expanded="true"><span class="n">3</span>Check the parts<span class="sum" id="sum3"></span><span class="chev" aria-hidden="true"></span></h2>
+    <div class="notice info" id="ocrStatus" hidden></div>
+    <div id="scanNotice"></div>
+    <ul class="missing" id="missing"></ul>
+    <input type="file" id="replaceFile" accept="application/pdf,.pdf" hidden>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Pages</th><th>Part name</th><th>Instrument</th><th>Copies</th><th>Why</th></tr></thead>
+        <tbody id="partRows"></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="link" id="resetOverrides">Reset all hand-edited copy counts</button>
+    </div>
+    <div id="percBox" class="perc-box" hidden>
+      <div class="rules-group">Who plays which percussion part</div>
+      <p class="hint" style="margin:0 0 8px">Tick the parts each student plays in this piece — they only get copies of those. Untouched, every percussionist gets every part. Saved for this piece and ensemble in this browser.</p>
+      <div class="table-wrap"><table class="perc-grid" id="percGrid"></table></div>
+      <div class="row" style="margin-top:8px">
+        <button type="button" class="link" id="percAll">Everyone plays everything</button>
+        <button type="button" class="link" id="percSpread">Spread the parts out (one each, round-robin)</button>
+        <button type="button" class="link" id="percNone">Clear all</button>
+      </div>
+      <p class="note" id="percNote"></p>
+    </div>
+    <details id="mapBox" style="margin-top:14px">
+      <summary style="cursor:pointer;font-weight:600">Page map — fix where parts start</summary>
+      <p class="hint" style="margin-top:8px">Each box is a page. Check “start” on the first page of every part; pages after it belong to that part until the next checked page. Colors alternate so you can see where each part begins and ends.</p>
+      <div class="pages" id="pages"></div>
+    </details>
+  </section>
+  <button type="button" class="primary to-print" id="toPrint" hidden>Go to print ↓</button>
+
+  <section class="card" id="s4" hidden>
+    <h2 class="fold" data-fold="s4" role="button" tabindex="0" aria-expanded="true"><span class="n">4</span>Review &amp; print<span class="sum" id="sum4"></span><span class="chev" aria-hidden="true"></span></h2>
+    <div class="seg" id="printMode" role="radiogroup" aria-label="What to print">
+      <label><input type="radio" name="pmode" value="all" checked> Print the whole set</label>
+      <label><input type="radio" name="pmode" value="some"> Reprint only some parts <span class="note">(lost music)</span></label>
+    </div>
+    <p class="hint" id="reviewHint">The top of the first page of every part that will print, with its copies and students. Anything highlighted needs a look — click a part to jump to it in the list.</p>
+    <div class="review-grid" id="review"></div>
+    <p class="note" id="reviewSkip"></p>
+    <div id="preflight" class="preflight" hidden></div>
+    <div class="stats" id="stats" style="margin-top:14px"></div>
+    <div class="row">
+      <input type="text" id="outName" style="flex:1;min-width:240px" aria-label="File name">
+      <button class="primary" id="buildBtn">Download print PDF</button>
+      <button type="button" id="handoutBtn" title="One page listing each part and who gets it, in chair order — for passing out music">Hand-out list</button>
+    </div>
+    <div class="status" id="buildStatus"></div>
+    <details class="settings" id="logBox" hidden></details>
+
+    <div class="keep">
+      <div class="rules-group">Keep this piece</div>
+      <p class="hint" style="margin:0 0 8px">Save the parts as you've confirmed them, so next time — another ensemble, next year — you just pick the piece and print. Saving also keeps the cleaned-up pages.</p>
+      <div class="row">
+        <input type="text" id="pieceName" style="flex:1;min-width:200px" aria-label="Piece name" placeholder="Piece name">
+        <button type="button" id="pieceSave">Save to my library</button>
+        <button type="button" id="pieceExport" title="A PDF with the part list built in — share it with another director or open it on another computer">Download piece file</button>
+      </div>
+      <div class="status" id="pieceStatus"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Only copy music you have the right to copy. Many publishers' licenses limit photocopying; digital sets often include permission to print for your own ensemble. This tool doesn't change what your license allows.</p>
+  <p>Everything runs in your browser — no files are uploaded. Ensemble numbers and print rules are saved only in this browser.</p>
+</footer>
+
+<script src="lib/pdf.min.js"></script>
+<script src="lib/pdf-lib.min.js"></script>
+<script>
+<!--INLINE:js/01-instruments.js-->
+<!--INLINE:js/02-settings-roster.js-->
+<!--INLINE:js/03-copy-plan.js-->
+<!--INLINE:js/04-ensemble.js-->
+<!--INLINE:js/05-sheet-roster.js-->
+<!--INLINE:js/06-setup-sync.js-->
+<!--INLINE:js/07-music-library.js-->
+<!--INLINE:js/08-hub-reprint.js-->
+<!--INLINE:js/09-load-pdf.js-->
+<!--INLINE:js/10-scan-cleanup.js-->
+<!--INLINE:js/11-ocr.js-->
+<!--INLINE:js/12-review.js-->
+<!--INLINE:js/13-page-map.js-->
+<!--INLINE:js/14-steps.js-->
+<!--INLINE:js/15-print.js-->
+<!--INLINE:js/16-start.js-->
+</script>
+</body>
+</html>

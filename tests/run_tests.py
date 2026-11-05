@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Part Copier regression tests. Needs: playwright (Chromium), pypdf, reportlab, Pillow.
   python3 tests/make_fixtures.py      # once
+  python3 build.py                    # after any change in src/
   python3 tests/run_tests.py          # serves the repo on a free port and runs every check
 Exit code 0 = all passed."""
-import functools, http.server, os, socketserver, sys, threading, traceback
+import functools, http.server, os, socketserver, subprocess, sys, threading, traceback
 from pypdf import PdfReader
 from playwright.sync_api import sync_playwright
 
@@ -11,6 +12,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FX = os.path.join(ROOT, "tests", "fixtures")
 OUTDIR = os.path.join(ROOT, "tests", "out"); os.makedirs(OUTDIR, exist_ok=True)
 fx = lambda n: os.path.join(FX, n)
+# index.html must be what src/ builds, or the tests would check stale code
+if subprocess.run([sys.executable, os.path.join(ROOT, "build.py"), "--check"]).returncode:
+    sys.exit(1)
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a): pass
