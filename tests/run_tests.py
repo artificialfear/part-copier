@@ -35,6 +35,8 @@ def fresh(pg):
     pg.goto(URL); pg.evaluate("localStorage.clear()"); pg.reload()
     # keep steps 1–2 open so the tests can use them
     pg.evaluate("window.setFold = ((s) => (id, c, r = true) => { if (r === false && c) return; s(id, c, r); })(window.setFold)")
+def google_on(pg):
+    pg.evaluate("document.getElementById('settingsBox').open=true"); pg.check("#setGoogle")
 def roster(pg, f):
     pg.evaluate("openStep('s1')"); pg.click("#rosterOpenBtn"); pg.fill("#rosterText", open(fx(f)).read()); pg.click("#rosterImport")
 def load(pg, f, ocr=False):
@@ -135,7 +137,8 @@ def t_sheet(pg):
     gis = "window.google={accounts:{oauth2:{initTokenClient:o=>({requestAccessToken:()=>setTimeout(()=>o.callback({access_token:'t',expires_in:3600}),5)}),revoke:(t,c)=>c&&c()}}};"
     pg.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(status=200, content_type="text/javascript", body=gis))
     pg.route("https://sheets.googleapis.com/**", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(vals)))
-    fresh(pg); pg.evaluate("sessionStorage.clear()"); pg.evaluate("openStep('s1')"); pg.click(".sheet-link summary")
+    fresh(pg); pg.evaluate("sessionStorage.clear()"); google_on(pg); pg.evaluate("openStep('s1')")
+    if not pg.is_visible("#bnClient"): pg.click(".sheet-link summary")
     pg.fill("#bnClient", "1-x.apps.googleusercontent.com"); pg.fill("#bnSheet", "https://docs.google.com/spreadsheets/d/AAAAAAAAAAAAAAAAAAAAAAAAAAAA/edit"); pg.click("#bnConnect"); pg.wait_for_timeout(400)
     check("sheet: tables found on the tab", pg.eval_on_selector_all("#bnTable option", "l=>l.map(o=>o.text)")[1:] == ["8th Grade (1st Block)", "7th Grade (3rd + 4th Block)"])
     pg.select_option("#bnTable", "7th Grade (3rd + 4th Block)"); pg.wait_for_timeout(400)
@@ -171,7 +174,7 @@ def t_drive(pg):
         return r.fulfill(status=200, content_type="application/json", body=json.dumps(lib))
     pg.route("https://sheets.googleapis.com/**", sheets)
     pg.route("https://www.googleapis.com/drive/**", drive)
-    fresh(pg); pg.evaluate("sessionStorage.clear()")
+    fresh(pg); pg.evaluate("sessionStorage.clear()"); google_on(pg)
     pg.evaluate("openStep('s2')"); pg.click("#mlDetails summary")
     check("drive: before Google sign-in is set up, the loader says to connect in step 1", "connect Google in step 1" in pg.inner_text("#mlBox") and not pg.is_visible("#mlFind"))
     pg.evaluate("saved.bn={clientId:'1-x.apps.googleusercontent.com',sheetId:'AAAAAAAAAAAAAAAAAAAAAAAAAAAA',tab:'Part Copier Roster',consented:true}; persist(); renderRoster()"); pg.wait_for_timeout(100)
@@ -242,7 +245,7 @@ def t_sync(pg):
         p.on("pageerror", lambda e: page_errors.append(str(e)))
     A, B = pages
     connect = "saved.bn={clientId:'1-x.apps.googleusercontent.com',sheetId:'AAAAAAAAAAAAAAAAAAAAAAAAAAAA',tab:'Part Copier Roster',consented:true,driveOk:true}; persist(); renderRoster()"
-    fresh(A); A.evaluate("sessionStorage.clear()"); A.evaluate("openStep('s1')"); A.evaluate("document.getElementById('syncBox').open=true")
+    fresh(A); A.evaluate("sessionStorage.clear()"); google_on(A); A.evaluate("openStep('s1')"); A.evaluate("document.getElementById('syncBox').open=true")
     check("sync: without Google connected it says to connect first", "Connect Google" in A.inner_text("#syncAuto"))
     A.evaluate(connect); A.wait_for_timeout(100)
     A.evaluate("saved.ensembles['My Band'].Trumpet=3; saved.ensembles['My Band'].Flute=2; persist()")
@@ -270,6 +273,24 @@ def t_sync(pg):
     check("sync: switched off, nothing more is sent", store["data"]["ensembles"]["My Band"]["Tuba"] == 1 and "stays in this browser" in B.inner_text("#syncAuto"))
     ctx.close()
     for u in ["https://accounts.google.com/gsi/client", "https://www.googleapis.com/**"]: A.unroute(u)
+
+def t_basic(pg):
+    # a director who only types counts: no Google panels until they ask for them
+    fresh(pg); pg.evaluate("openStep('s1'); openStep('s2'); document.getElementById('syncBox').open=true")
+    check("basic: no Google Sheet, Music Library or Google sync showing", pg.query_selector(".sheet-link") is None and pg.inner_text("#mlBox").strip() == "" and not pg.is_visible("#syncAuto"))
+    check("basic: the roster offer is one line, and moving computers points to the setup file", pg.query_selector(".roster-card") is None and pg.is_visible("#rosterOpenBtn") and "setup file" in pg.inner_text("#syncHint"))
+    pg.click("#rosterOpenBtn")
+    check("basic: Import names opens the paste box", pg.is_visible("#rosterText"))
+    pg.click("#rosterCancel")
+    google_on(pg); pg.wait_for_timeout(200)
+    check("basic: ticking Use Google features shows them all", pg.is_visible("#bnClient") and "Music Library" in pg.inner_text("#mlBox") and pg.is_visible("#syncAuto"))
+    pg.reload(); pg.wait_for_timeout(300)
+    check("basic: the choice is remembered", pg.query_selector(".sheet-link") is not None)
+    pg.evaluate("saved.bn={clientId:'1-x.apps.googleusercontent.com',sheetId:'AAAAAAAAAAAAAAAAAAAAAAAAAAAA',tab:'Roster'}; saved.googleOn=false; persist(); renderSettings(); renderRoster()")
+    check("basic: once connected, Google stays on (switch locked until Disconnect)", pg.is_checked("#setGoogle") and pg.is_disabled("#setGoogle") and pg.query_selector(".sheet-link") is not None)
+    fresh(pg); pg.goto(URL + "?folder=FOLDERX1234567890&title=Test%20Piece"); pg.wait_for_timeout(400)
+    check("basic: a Hub link still offers its piece without the switch", "Test Piece" in pg.inner_text("#mlBox"))
+    pg.goto(URL)
 
 def t_colleague(pg):
     # a director with no Music Library sheet: the loader explains instead of failing
@@ -383,7 +404,7 @@ with sync_playwright() as p:
     ctx = b.new_context(accept_downloads=True, viewport={"width": 1100, "height": 900}); pg = ctx.new_page()
     pg.on("pageerror", lambda e: page_errors.append(str(e)))
     only = sys.argv[1:]
-    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_log, t_sync, t_colleague, t_reprint, t_pagemap, t_scan]:
+    for t in [t_concert, t_nochairs, t_copies, t_flex, t_march, t_hidden, t_sheet, t_drive, t_log, t_sync, t_basic, t_colleague, t_reprint, t_pagemap, t_scan]:
         if only and t.__name__[2:] not in only: continue
         try: t(pg)
         except Exception as e: check(t.__name__ + " ran", False, traceback.format_exc(limit=2))

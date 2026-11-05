@@ -137,7 +137,10 @@ async function syncNow(interactive){
 }
 function renderSyncAuto(){
   const box = $("syncAuto"); if (!box) return;
-  const cfg = bnCfg();
+  const cfg = bnCfg(), g = googleOn();
+  $("syncHint").textContent = g ? "Your setup is saved in this browser. With Google connected, “Keep in sync” carries it to any computer where you sign in. Without Google, save a setup file here and load it on the other computer."
+    : "Your setup is saved in this browser. To use it on another computer, save a setup file here, then load it there.";
+  box.hidden = !g; if (!g){ box.innerHTML = ""; return; }
   if (!cfg){ box.innerHTML = `<div class="rule-text"><b>Keep in sync through Google</b><span>Connect Google in “Pull the roster from a Google Sheet” first. Then this setup follows you to any computer where you sign in.</span></div>`; return; }
   let h = `<div class="rule-text"><b>Keep in sync through Google</b><span>${syncOn() ? (saved.syncAt ? "Last synced " + timeAgo(saved.syncAt) + "." : "Not synced yet.") + " Stored in Part Copier's own private folder in your Google Drive; it can't see your other files." : "Off: this setup stays in this browser only."}</span></div>
     <div class="rule-ctl"><label class="chk"><input type="checkbox" id="syncAutoOn" ${syncOn() ? "checked" : ""}> On</label>
@@ -191,7 +194,16 @@ function renderSettings(){
   $("setOdd").value = st.oddTo; $("setPerc").checked = st.percAll; $("setSpares").value = st.spares;
   $("setScore").checked = st.includeScore; $("setScoreCopies").value = st.scoreCopies; $("setScoreCopies").disabled = !st.includeScore;
   $("setDuplex").checked = st.duplex;
+  $("setGoogle").checked = googleOn(); $("setGoogle").disabled = !!bnCfg();
+  $("googleHint").innerHTML = bnCfg() ? "Connected. To turn Google features off, click Disconnect next to the Google Sheet in step 1 first."
+    : 'Pull rosters from a Google Sheet, load pieces from a music library in Google Drive, and keep your setup in sync between computers. Needs a one-time Google sign-in setup (<a href="https://github.com/artificialfear/part-copier#setting-up-google-sign-in-once-about-15-minutes" target="_blank" rel="noopener">how to set it up</a>). Not needed to print.';
 }
+$("setGoogle").addEventListener("change", e => {
+  e.stopPropagation(); saved.googleOn = e.target.checked;
+  if (saved.googleOn){ saved.bnOpen = true; rosterOpen = false; }
+  persist(); renderSettings(); renderRoster(); mlRender(); renderSyncAuto();
+  if (saved.googleOn){ openStep("s1"); const el = document.querySelector(".sheet-link"); if (el) el.scrollIntoView({ block: "center", behavior: "smooth" }); }
+});
 $("settingsBox").addEventListener("input", () => {
   const st = S();
   st.oddTo = $("setOdd").value; st.percAll = $("setPerc").checked;

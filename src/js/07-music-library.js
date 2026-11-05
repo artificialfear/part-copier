@@ -8,8 +8,12 @@ const folderIdFrom = s => { const m = String(s || "").match(/\/folders\/([a-zA-Z
 const ML_SKIP = /\b(narrator|narration|script)\b/i;
 const ML_SCORE = /\b(score|conductor)\b/i;
 function mlMsg(t, err){ const el = $("mlMsg"); if (el){ el.className = "roster-msg" + (err ? " err" : ""); el.textContent = t; } }
+// Google features (Sheet roster, Music Library, sync) show only once someone wants them: a Google connection is set up,
+// "Use Google features" is ticked in Print rules, or a Hub link brought a piece to load. Everyone else sees counts + PDF.
+function googleOn(){ return !!(bnCfg() || saved.googleOn || mlPending); }
 function mlRender(){
   const box = $("mlBox"); if (!box) return;
+  if (!googleOn()){ box.innerHTML = ""; return; }
   const cfg = bnCfg();
   let h = "";
   if (mlPending) h += `<div class="ml-banner"><span>Load <b>${esc(mlPending.title || "this piece")}</b> from Google Drive?${mlPending.reprint && mlPending.reprint.length ? ` Reprint for ${mlPending.reprint.length} student${mlPending.reprint.length === 1 ? "" : "s"} who lost a part.` : ""}</span>

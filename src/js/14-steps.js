@@ -206,7 +206,7 @@ function preflight(rows){
     const splitFams = [...new Set(rows.filter(r => !r.dup && r.nums && r.nums.length && (r.note || "").includes("÷")).map(r => r.fam))];
     const noChair = splitFams.filter(f => (v.byInst[f] || []).length > 1 && (v.byInst[f] || []).every(s => s.chair == null));
     if (noChair.length && !mute.chairs) out.push({ id: "chairs", text: `No chair placements for ${noChair.map(f => SHORT(f)).join(", ")} — 1st/2nd parts are split alphabetically.`,
-      why: "If this ensemble normally has chairs, the chair sheet may have lost its connection. Re-copy the roster from Band Ninja once chairs show again.", mutable: true });
+      why: "If this ensemble normally has chairs, the chair sheet may have lost its connection. Re-copy the roster from your spreadsheet once chairs show again.", mutable: true });
     // a tie that lands exactly where a part splits
     for (const f of splitFams){
       const g = (v.byInst[f] || []).filter(s => s.chair != null), parts = rows.filter(r => !r.dup && r.fam === f && r.nums.length === 1 && r.names.length);
@@ -222,8 +222,8 @@ function preflight(rows){
     const hours = ros.imported ? (Date.now() - new Date(ros.imported)) / 3600000 : null;
     if (bnCfg() && bnLink() && hours !== null && hours > 12)
       out.push({ id: "pull", text: `The roster was last pulled from the Google Sheet ${timeAgo(ros.imported)}.`, why: "Pull it again to pick up chair changes, new students and drops.", pull: true });
-    else if (days !== null && days > 14 && !mute.stale) out.push({ id: "stale", text: `The roster was imported ${days} days ago.`, why: "New students, drops and chair changes since then won't be in this print. Re-copy it from Band Ninja (Replace roster).", mutable: true });
-    if (ros.skipped && ros.skipped.length) out.push({ id: "skipped", text: `Not on any part: ${ros.skipped.join("; ")}.`, why: "These rows in the roster had no recognizable instrument, so they get no music. Fix the instrument in Band Ninja and re-copy the roster." });
+    else if (days !== null && days > 14 && !mute.stale) out.push({ id: "stale", text: `The roster was imported ${days} days ago.`, why: "New students, drops and chair changes since then won't be in this print. Re-copy it from your spreadsheet (Replace roster).", mutable: true });
+    if (ros.skipped && ros.skipped.length) out.push({ id: "skipped", text: `Not on any part: ${ros.skipped.join("; ")}.`, why: "These rows in the roster had no recognizable instrument, so they get no music. Fix the instrument in your spreadsheet and re-copy the roster." });
   }
   const gaps = state.percGaps;
   if (gaps && !$("percBox").hidden){

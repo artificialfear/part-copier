@@ -46,6 +46,9 @@ function renderRoster(){
       ${sheetPanel()}
       ${importPanel()}
     </div>`;
+  } else if (!googleOn() && !rosterOpen){
+    box.innerHTML = `<p class="roster-mini">Have a roster with chair placements? <button type="button" class="link" id="rosterOpenBtn">Import names (optional)</button>
+      <span class="g">— prints a named copy for each student, split parts by chair.</span></p>${importPanel()}`;
   } else {
     box.innerHTML = `<div class="roster-card">
       <div class="roster-head">

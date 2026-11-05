@@ -56,6 +56,8 @@ select,input[type=text],input[type=number]{border:1px solid var(--line-strong);b
 input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px}
 input[type=number]{width:64px;text-align:center}
+.roster-mini{margin:12px 0 0;font-size:14px;color:var(--text)}
+.roster-mini .g{color:var(--muted);font-size:13px}
 .roster-card{margin-top:14px;border:1px solid var(--line);border-radius:8px;background:var(--field);padding:12px 14px}
 .roster-card.has{border-color:var(--accent)}
 .roster-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}

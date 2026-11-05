@@ -119,9 +119,16 @@ fine) — or upload a CSV. Then:
   Uncheck **Print names on parts** to use the roster for counts only.
 - Rosters are saved only in that browser. On shared computers, use **Forget roster**.
 
+### Google features (optional, off at first)
+
+Everything above works without Google. Pulling a roster from a Google Sheet, loading pieces from a music library in
+Google Drive and keeping your setup in sync between computers are hidden until you tick **Print rules → Use Google
+features** (or open a link from the Raven Band Hub). Once Google is connected they stay on; click **Disconnect** in
+step 1 to turn them off again.
+
 ### Pull the roster straight from a Google Sheet (optional)
 
-Instead of pasting, connect the spreadsheet once under **Pull the roster from a Google Sheet instead of pasting**
+Instead of pasting, tick **Use Google features**, then connect the spreadsheet once under **Pull the roster from a Google Sheet instead of pasting**
 (step 1): your Google sign-in client ID (see "Setting up Google sign-in" below), the spreadsheet link, and the tab
 name (default *Part Copier Roster*). The tool finds every *Name / Instrument / Chair* table on that tab, by the
 title above it; pick the one for each ensemble. After that:

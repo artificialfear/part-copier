@@ -21,6 +21,13 @@ No student data in the repo — rosters live in each browser's localStorage (key
 - A new file: add it to src/js and add its `<!--INLINE:js/…-->` line in src/index.html (build.py stops if a
   .js/.css file in src/ isn't listed).
 
+## Google features switch (2026-11-04)
+googleOn() (07-music-library.js) = bnCfg() || saved.googleOn || mlPending (a Hub link). Off → sheetPanel() returns "",
+mlRender() empties #mlBox, renderSyncAuto() hides #syncAuto and #syncHint points to the setup file, and renderRoster()
+shows a one-line "Import names (optional)" (same #rosterOpenBtn). Switch = Print rules → #setGoogle (locked on while
+connected). Built for directors who only type counts (Mat's wife, high school band). Tests: t_basic; Google tests
+call google_on(pg) first.
+
 ## How it works (where to look)
 - Detection: RX/famHits/classify/labelFromLines (part names), flexParse (numbered flex voices),
   detectStarts (title-based part starts, continuation headers), inferNames (copies, renumbering, score order),

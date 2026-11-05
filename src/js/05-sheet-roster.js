@@ -13,6 +13,7 @@ try { const t = JSON.parse(sessionStorage.getItem("partCopier.bnToken") || "null
 const sheetIdFrom = s => { const m = String(s || "").match(/\/d\/([a-zA-Z0-9_-]{20,})/) || String(s || "").trim().match(/^([a-zA-Z0-9_-]{20,})$/); return m ? m[1] : null; };
 function sheetPanel(){
   const cfg = bnCfg(), link = bnLink(), ros = roster();
+  if (!googleOn()) return "";
   if (!cfg) return `<details class="settings sheet-link" ${saved.bnOpen ? "open" : ""}><summary>Pull the roster from a Google Sheet instead of pasting</summary>
     <p class="hint">Connect your roster spreadsheet (e.g. Band Ninja's Part Copier Roster tab). You sign in with Google; the sheet stays private and is only read, never changed.</p>
     <label class="fld">Google sign-in client ID <input type="text" id="bnClient" placeholder="1234…apps.googleusercontent.com" value="${esc(saved.bnClientDraft || "")}"></label>

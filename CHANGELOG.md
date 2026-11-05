@@ -1,5 +1,11 @@
 # Part Copier changelog
 
+## 2026-11-04
+- **Simpler for directors who just type counts:** the Google features (Sheet roster, Music Library, Google sync) are hidden
+  until you tick **Print rules → Use Google features**. If you've already connected Google, nothing changes for you.
+- The roster offer in step 1 is now one line ("Import names (optional)") until you use it.
+- Check-before-printing messages say "your spreadsheet" instead of naming Band Ninja.
+
 ## 2026-11-02 (night)
 - **Lost-part reprints from the Raven Band Hub:** the Hub's Music requests → "Reprint in Part Copier" opens the piece straight in
   "Reprint only some parts", with each student's part ticked and their name on it. Students not on a roster get a blank copy of

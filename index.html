@@ -68,6 +68,8 @@ select,input[type=text],input[type=number]{border:1px solid var(--line-strong);b
 input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px}
 input[type=number]{width:64px;text-align:center}
+.roster-mini{margin:12px 0 0;font-size:14px;color:var(--text)}
+.roster-mini .g{color:var(--muted);font-size:13px}
 .roster-card{margin-top:14px;border:1px solid var(--line);border-radius:8px;background:var(--field);padding:12px 14px}
 .roster-card.has{border-color:var(--accent)}
 .roster-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
@@ -287,12 +289,18 @@ footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;color:var(--muted);fon
           <div class="rule-text"><b>Printing double-sided</b><span>Adds a blank page after odd-length parts so every part starts on a new sheet.</span></div>
           <div class="rule-ctl"><input type="checkbox" id="setDuplex"></div>
         </label>
+
+        <div class="rules-group">Google (optional)</div>
+        <label class="rule clickable" id="googleRule">
+          <div class="rule-text"><b>Use Google features</b><span id="googleHint">Pull rosters from a Google Sheet, load pieces from a music library in Google Drive, and keep your setup in sync between computers. Needs a one-time Google sign-in setup (<a href="https://github.com/artificialfear/part-copier#setting-up-google-sign-in-once-about-15-minutes" target="_blank" rel="noopener">how to set it up</a>). Not needed to print.</span></div>
+          <div class="rule-ctl"><input type="checkbox" id="setGoogle"></div>
+        </label>
       </div>
     </details>
 
     <details class="settings" id="syncBox">
       <summary>Use this setup on another computer</summary>
-      <p class="hint" style="margin-top:8px">Your setup is saved in this browser. With Google connected, “Keep in sync” carries it to any computer where you sign in. Without Google, save a setup file here and load it on the other computer.</p>
+      <p class="hint" style="margin-top:8px" id="syncHint"></p>
       <div class="rules">
         <div class="rule" id="syncAuto"></div>
         <div class="status" id="syncAutoMsg" style="margin:0 0 6px"></div>
@@ -1057,6 +1065,9 @@ function renderRoster(){
       ${sheetPanel()}
       ${importPanel()}
     </div>`;
+  } else if (!googleOn() && !rosterOpen){
+    box.innerHTML = `<p class="roster-mini">Have a roster with chair placements? <button type="button" class="link" id="rosterOpenBtn">Import names (optional)</button>
+      <span class="g">— prints a named copy for each student, split parts by chair.</span></p>${importPanel()}`;
   } else {
     box.innerHTML = `<div class="roster-card">
       <div class="roster-head">
@@ -1084,6 +1095,7 @@ try { const t = JSON.parse(sessionStorage.getItem("partCopier.bnToken") || "null
 const sheetIdFrom = s => { const m = String(s || "").match(/\/d\/([a-zA-Z0-9_-]{20,})/) || String(s || "").trim().match(/^([a-zA-Z0-9_-]{20,})$/); return m ? m[1] : null; };
 function sheetPanel(){
   const cfg = bnCfg(), link = bnLink(), ros = roster();
+  if (!googleOn()) return "";
   if (!cfg) return `<details class="settings sheet-link" ${saved.bnOpen ? "open" : ""}><summary>Pull the roster from a Google Sheet instead of pasting</summary>
     <p class="hint">Connect your roster spreadsheet (e.g. Band Ninja's Part Copier Roster tab). You sign in with Google; the sheet stays private and is only read, never changed.</p>
     <label class="fld">Google sign-in client ID <input type="text" id="bnClient" placeholder="1234…apps.googleusercontent.com" value="${esc(saved.bnClientDraft || "")}"></label>
@@ -1448,7 +1460,10 @@ async function syncNow(interactive){
 }
 function renderSyncAuto(){
   const box = $("syncAuto"); if (!box) return;
-  const cfg = bnCfg();
+  const cfg = bnCfg(), g = googleOn();
+  $("syncHint").textContent = g ? "Your setup is saved in this browser. With Google connected, “Keep in sync” carries it to any computer where you sign in. Without Google, save a setup file here and load it on the other computer."
+    : "Your setup is saved in this browser. To use it on another computer, save a setup file here, then load it there.";
+  box.hidden = !g; if (!g){ box.innerHTML = ""; return; }
   if (!cfg){ box.innerHTML = `<div class="rule-text"><b>Keep in sync through Google</b><span>Connect Google in “Pull the roster from a Google Sheet” first. Then this setup follows you to any computer where you sign in.</span></div>`; return; }
   let h = `<div class="rule-text"><b>Keep in sync through Google</b><span>${syncOn() ? (saved.syncAt ? "Last synced " + timeAgo(saved.syncAt) + "." : "Not synced yet.") + " Stored in Part Copier's own private folder in your Google Drive; it can't see your other files." : "Off: this setup stays in this browser only."}</span></div>
     <div class="rule-ctl"><label class="chk"><input type="checkbox" id="syncAutoOn" ${syncOn() ? "checked" : ""}> On</label>
@@ -1502,7 +1517,16 @@ function renderSettings(){
   $("setOdd").value = st.oddTo; $("setPerc").checked = st.percAll; $("setSpares").value = st.spares;
   $("setScore").checked = st.includeScore; $("setScoreCopies").value = st.scoreCopies; $("setScoreCopies").disabled = !st.includeScore;
   $("setDuplex").checked = st.duplex;
+  $("setGoogle").checked = googleOn(); $("setGoogle").disabled = !!bnCfg();
+  $("googleHint").innerHTML = bnCfg() ? "Connected. To turn Google features off, click Disconnect next to the Google Sheet in step 1 first."
+    : 'Pull rosters from a Google Sheet, load pieces from a music library in Google Drive, and keep your setup in sync between computers. Needs a one-time Google sign-in setup (<a href="https://github.com/artificialfear/part-copier#setting-up-google-sign-in-once-about-15-minutes" target="_blank" rel="noopener">how to set it up</a>). Not needed to print.';
 }
+$("setGoogle").addEventListener("change", e => {
+  e.stopPropagation(); saved.googleOn = e.target.checked;
+  if (saved.googleOn){ saved.bnOpen = true; rosterOpen = false; }
+  persist(); renderSettings(); renderRoster(); mlRender(); renderSyncAuto();
+  if (saved.googleOn){ openStep("s1"); const el = document.querySelector(".sheet-link"); if (el) el.scrollIntoView({ block: "center", behavior: "smooth" }); }
+});
 $("settingsBox").addEventListener("input", () => {
   const st = S();
   st.oddTo = $("setOdd").value; st.percAll = $("setPerc").checked;
@@ -1522,8 +1546,12 @@ const folderIdFrom = s => { const m = String(s || "").match(/\/folders\/([a-zA-Z
 const ML_SKIP = /\b(narrator|narration|script)\b/i;
 const ML_SCORE = /\b(score|conductor)\b/i;
 function mlMsg(t, err){ const el = $("mlMsg"); if (el){ el.className = "roster-msg" + (err ? " err" : ""); el.textContent = t; } }
+// Google features (Sheet roster, Music Library, sync) show only once someone wants them: a Google connection is set up,
+// "Use Google features" is ticked in Print rules, or a Hub link brought a piece to load. Everyone else sees counts + PDF.
+function googleOn(){ return !!(bnCfg() || saved.googleOn || mlPending); }
 function mlRender(){
   const box = $("mlBox"); if (!box) return;
+  if (!googleOn()){ box.innerHTML = ""; return; }
   const cfg = bnCfg();
   let h = "";
   if (mlPending) h += `<div class="ml-banner"><span>Load <b>${esc(mlPending.title || "this piece")}</b> from Google Drive?${mlPending.reprint && mlPending.reprint.length ? ` Reprint for ${mlPending.reprint.length} student${mlPending.reprint.length === 1 ? "" : "s"} who lost a part.` : ""}</span>
@@ -3020,7 +3048,7 @@ function preflight(rows){
     const splitFams = [...new Set(rows.filter(r => !r.dup && r.nums && r.nums.length && (r.note || "").includes("÷")).map(r => r.fam))];
     const noChair = splitFams.filter(f => (v.byInst[f] || []).length > 1 && (v.byInst[f] || []).every(s => s.chair == null));
     if (noChair.length && !mute.chairs) out.push({ id: "chairs", text: `No chair placements for ${noChair.map(f => SHORT(f)).join(", ")} — 1st/2nd parts are split alphabetically.`,
-      why: "If this ensemble normally has chairs, the chair sheet may have lost its connection. Re-copy the roster from Band Ninja once chairs show again.", mutable: true });
+      why: "If this ensemble normally has chairs, the chair sheet may have lost its connection. Re-copy the roster from your spreadsheet once chairs show again.", mutable: true });
     // a tie that lands exactly where a part splits
     for (const f of splitFams){
       const g = (v.byInst[f] || []).filter(s => s.chair != null), parts = rows.filter(r => !r.dup && r.fam === f && r.nums.length === 1 && r.names.length);
@@ -3036,8 +3064,8 @@ function preflight(rows){
     const hours = ros.imported ? (Date.now() - new Date(ros.imported)) / 3600000 : null;
     if (bnCfg() && bnLink() && hours !== null && hours > 12)
       out.push({ id: "pull", text: `The roster was last pulled from the Google Sheet ${timeAgo(ros.imported)}.`, why: "Pull it again to pick up chair changes, new students and drops.", pull: true });
-    else if (days !== null && days > 14 && !mute.stale) out.push({ id: "stale", text: `The roster was imported ${days} days ago.`, why: "New students, drops and chair changes since then won't be in this print. Re-copy it from Band Ninja (Replace roster).", mutable: true });
-    if (ros.skipped && ros.skipped.length) out.push({ id: "skipped", text: `Not on any part: ${ros.skipped.join("; ")}.`, why: "These rows in the roster had no recognizable instrument, so they get no music. Fix the instrument in Band Ninja and re-copy the roster." });
+    else if (days !== null && days > 14 && !mute.stale) out.push({ id: "stale", text: `The roster was imported ${days} days ago.`, why: "New students, drops and chair changes since then won't be in this print. Re-copy it from your spreadsheet (Replace roster).", mutable: true });
+    if (ros.skipped && ros.skipped.length) out.push({ id: "skipped", text: `Not on any part: ${ros.skipped.join("; ")}.`, why: "These rows in the roster had no recognizable instrument, so they get no music. Fix the instrument in your spreadsheet and re-copy the roster." });
   }
   const gaps = state.percGaps;
   if (gaps && !$("percBox").hidden){
